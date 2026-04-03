@@ -12,7 +12,8 @@ if (dotenvResult.error) {
 import express from 'express'
 import cron from 'node-cron'
 import P from 'pino'
-import qrcode from 'qrcode-terminal'
+import qrcodeTerminal from 'qrcode-terminal'
+import QRCode from 'qrcode'
 import makeWASocket, {
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
@@ -37,7 +38,61 @@ const OPENCLAW_CALLBACK_TOKEN = (process.env.OPENCLAW_CALLBACK_TOKEN || '').trim
 const app = express()
 app.use(express.json({ limit: '2mb' }))
 const port = process.env.PORT || 3000
+let latestQrText = null
+let latestQrImageUrl = null
+let latestQrUpdatedAt = null
+let latestWaStatus = 'starting'
+
 app.get('/health', (req, res) => res.json({ ok: true }))
+app.get('/qr', (req, res) => {
+  const qrReady = Boolean(latestQrImageUrl)
+  res.setHeader('Content-Type', 'text/html; charset=utf-8')
+  res.end(`<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="refresh" content="10" />
+    <title>HOF Bot QR</title>
+    <style>
+      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:#111827; color:#f9fafb; margin:0; padding:24px; }
+      .card { max-width:520px; margin:40px auto; background:#1f2937; border-radius:16px; padding:24px; box-shadow:0 10px 30px rgba(0,0,0,.35); }
+      h1 { margin:0 0 12px; font-size:28px; }
+      p { color:#d1d5db; line-height:1.5; }
+      .meta { font-size:14px; color:#9ca3af; margin-top:12px; }
+      img { display:block; width:100%; max-width:320px; margin:24px auto; background:#fff; padding:16px; border-radius:12px; }
+      .status { display:inline-block; padding:6px 10px; border-radius:999px; background:#374151; font-size:13px; margin-top:8px; }
+      code { background:#111827; padding:2px 6px; border-radius:6px; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>HOF WhatsApp QR</h1>
+      <div class="status">WA status: ${latestWaStatus}</div>
+      ${
+        qrReady
+          ? `<p>Scan this QR with WhatsApp Linked Devices. This page refreshes every 10 seconds.</p>
+             <img src="${latestQrImageUrl}" alt="WhatsApp QR Code" />
+             <div class="meta">Last updated: ${latestQrUpdatedAt || 'unknown'}</div>`
+          : `<p>No active QR is available right now.</p>
+             <p>If the bot is already connected, that is expected. If you need a fresh QR, restart the bot session and reopen this page.</p>
+             <div class="meta">Last QR update: ${latestQrUpdatedAt || 'never'}</div>`
+      }
+      <div class="meta">Health check: <code>/health</code></div>
+    </div>
+  </body>
+</html>`)
+})
+
+app.get('/qr.json', (req, res) =>
+  res.json({
+    ok: true,
+    connected: latestWaStatus === 'open',
+    status: latestWaStatus,
+    qrAvailable: Boolean(latestQrImageUrl),
+    updatedAt: latestQrUpdatedAt
+  })
+)
 log.info({ HANDLER_VERSION }, 'boot')
 
 const ALLOWED_GROUPS = (process.env.ALLOWED_GROUPS || '')
@@ -587,9 +642,23 @@ async function startSock() {
   })
 
   sock.ev.on('connection.update', ({ connection, lastDisconnect, qr }) => {
-    if (connection) waConnectionState = connection
-    if (qr) qrcode.generate(qr, { small: true })
+    if (connection) {
+      waConnectionState = connection
+      latestWaStatus = connection
+    }
+    if (qr) {
+      latestQrText = qr
+      latestQrUpdatedAt = new Date().toISOString()
+      qrcodeTerminal.generate(qr, { small: true })
+      QRCode.toDataURL(qr, { margin: 1, width: 320 })
+        .then(url => {
+          latestQrImageUrl = url
+        })
+        .catch(err => log.warn({ err }, 'qr image generation failed'))
+    }
     if (connection === 'open') {
+      latestQrText = null
+      latestQrImageUrl = null
       log.info({ waConnectionState }, 'connected')
     }
     if (connection === 'close') {
