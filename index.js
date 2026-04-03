@@ -43,6 +43,14 @@ let latestQrImageUrl = null
 let latestQrUpdatedAt = null
 let latestWaStatus = 'starting'
 
+function getAppBaseUrl() {
+  const explicit = (process.env.APP_BASE_URL || '').trim()
+  if (explicit) return explicit.replace(/\/+$/, '')
+  const railwayDomain = (process.env.RAILWAY_PUBLIC_DOMAIN || '').trim()
+  if (railwayDomain) return `https://${railwayDomain}`
+  return `http://127.0.0.1:${port}`
+}
+
 app.get('/health', (req, res) => res.json({ ok: true }))
 app.get('/qr', (req, res) => {
   const qrReady = Boolean(latestQrImageUrl)
@@ -653,6 +661,7 @@ async function startSock() {
       QRCode.toDataURL(qr, { margin: 1, width: 320 })
         .then(url => {
           latestQrImageUrl = url
+          log.info({ qrUrl: `${getAppBaseUrl()}/qr` }, 'scan WhatsApp QR in browser')
         })
         .catch(err => log.warn({ err }, 'qr image generation failed'))
     }
@@ -1309,6 +1318,15 @@ async function startSock() {
   )
 }
 
-app.listen(port, () => log.info(`server on ${port}`))
+app.listen(port, () =>
+  log.info(
+    {
+      port,
+      healthUrl: `${getAppBaseUrl()}/health`,
+      qrUrl: `${getAppBaseUrl()}/qr`
+    },
+    'server on'
+  )
+)
 
 startSock().catch(err => log.error({ err }, 'fatal error'))
