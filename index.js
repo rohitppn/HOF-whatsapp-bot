@@ -1,13 +1,21 @@
 import fs from 'fs'
+import path from 'path'
 import dotenv from 'dotenv'
+import { fileURLToPath } from 'url'
 import { Jimp, intToRGBA } from 'jimp'
 
-const DOTENV_PATH = '/Users/rohitsharma/Desktop/arunavclothingbot/hof-ops-bot/.env'
-const dotenvResult = dotenv.config({ path: DOTENV_PATH, override: true })
-if (dotenvResult.error) {
-  console.error('dotenv load error', dotenvResult.error)
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+const DOTENV_PATH = process.env.DOTENV_PATH || path.join(__dirname, '.env')
+if (fs.existsSync(DOTENV_PATH)) {
+  const dotenvResult = dotenv.config({ path: DOTENV_PATH, override: true })
+  if (dotenvResult.error) {
+    console.error('dotenv load error', dotenvResult.error)
+  } else {
+    console.log('dotenv loaded from', DOTENV_PATH)
+  }
 } else {
-  console.log('dotenv loaded from', DOTENV_PATH)
+  console.log('dotenv file not found, using process environment only')
 }
 import express from 'express'
 import cron from 'node-cron'
@@ -34,6 +42,7 @@ const log = P({ level: process.env.LOG_LEVEL || 'info' })
 const HANDLER_VERSION = 'v5-openai-smart-ops'
 const TIMEZONE = process.env.TIMEZONE || 'Asia/Kolkata'
 const OPENCLAW_CALLBACK_TOKEN = (process.env.OPENCLAW_CALLBACK_TOKEN || '').trim()
+const OPENCLAW_MANAGER_ONLY = process.env.OPENCLAW_MANAGER_ONLY !== '0'
 
 const app = express()
 app.use(express.json({ limit: '2mb' }))
@@ -119,7 +128,8 @@ log.info(
     TIMEZONE,
     ALLOWED_GROUPS,
     STORES_COUNT: getStoresFromEnv().length,
-    OPENCLAW_ENABLED: isOpenClawEnabled()
+    OPENCLAW_ENABLED: isOpenClawEnabled(),
+    OPENCLAW_MANAGER_ONLY
   },
   'boot config'
 )
@@ -604,6 +614,7 @@ async function startSock() {
   }
 
   async function pushOpsEvent(event) {
+    if (OPENCLAW_MANAGER_ONLY) return
     if (!isOpenClawEnabled()) return
     try {
       await sendOpsEventToOpenClaw(event)

@@ -5,6 +5,8 @@ const numberClean = val =>
 
 const parseAmount = raw => {
   const lower = String(raw || '').toLowerCase()
+  const trimmed = lower.trim()
+  if (['nil', 'nill', 'na', 'n/a', 'none', '-', '--'].includes(trimmed)) return 0
   const cleaned = numberClean(lower)
   if (!cleaned) return NaN
 
