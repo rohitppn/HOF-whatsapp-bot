@@ -36,7 +36,7 @@ import { parseHourlyReport } from './services/parser.js'
 import { appendSheetRow, sheetBigBill, sheetHourly, sheetOpening, getSheetRows, updateSheetRange, updateStaffDress } from './services/sheets.js'
 import { initDb } from './config/db.js'
 import { addKnowledge, getRecentKnowledge, getRecentMessages, saveGroupMessage } from './services/memory.js'
-import { analyzeDressImage, decideSmartReply, extractOperationalIntent, parseManagerCommand } from './services/openai.js'
+import { analyzeDressImage, answerManagerAssistant, decideSmartReply, extractOperationalIntent, parseManagerCommand } from './services/openai.js'
 import { getTopBigBillForDate, saveBigBill } from './services/bigBills.js'
 import { isOpenClawEnabled, sendManagerEventToOpenClaw, sendOpsEventToOpenClaw } from './services/openclaw.js'
 
@@ -807,23 +807,31 @@ async function startSock() {
 
         if (isManagerGroup && (botMentioned || looksLikeManagerCommand(text))) {
           const managerAssistantChat = botMentioned || looksLikeManagerAssistantChat(text)
-          await pushManagerEvent({
-            groupJid: jid,
-            senderJid: sender,
-            senderName,
-            timestamp: parts.recordedAt,
-            text,
-            eventType: managerAssistantChat ? 'manager_assistant_chat' : 'manager_command',
-            allowedSheets: [process.env.HOURLY_SHEET_NAME || 'Sheet1', process.env.OPENING_SHEET_NAME || 'Sheet2'],
-            storeGroups: ALLOWED_GROUPS,
-            stores: getStoresFromEnv(),
-            sessionKey
-          })
+          const allowedSheets = [
+            process.env.HOURLY_SHEET_NAME || 'Sheet1',
+            process.env.OPENING_SHEET_NAME || 'Sheet2',
+            process.env.BIG_BILL_SHEET_NAME || 'Sheet3'
+          ]
+
+          if (isOpenClawEnabled()) {
+            await pushManagerEvent({
+              groupJid: jid,
+              senderJid: sender,
+              senderName,
+              timestamp: parts.recordedAt,
+              text,
+              eventType: managerAssistantChat ? 'manager_assistant_chat' : 'manager_command',
+              allowedSheets,
+              storeGroups: ALLOWED_GROUPS,
+              stores: getStoresFromEnv(),
+              sessionKey
+            })
+          }
 
           const cmd = await parseManagerCommand({
             text,
             stores: getStoresFromEnv(),
-            allowedSheets: [process.env.HOURLY_SHEET_NAME || 'Sheet1', process.env.OPENING_SHEET_NAME || 'Sheet2'],
+            allowedSheets,
             storeGroups: ALLOWED_GROUPS
           })
 
@@ -839,11 +847,8 @@ async function startSock() {
           }
 
           if (cmd?.action === 'update_sheet' && cmd.sheetName && Array.isArray(cmd.values) && cmd.values.length) {
-            const allowedSheets = new Set([
-              process.env.HOURLY_SHEET_NAME || 'Sheet1',
-              process.env.OPENING_SHEET_NAME || 'Sheet2'
-            ])
-            if (allowedSheets.has(cmd.sheetName)) {
+            const allowedSheetSet = new Set(allowedSheets)
+            if (allowedSheetSet.has(cmd.sheetName)) {
               if (cmd.appendRow) {
                 for (const row of cmd.values) {
                   await appendSheetRow(cmd.sheetName, row)
@@ -857,7 +862,17 @@ async function startSock() {
           }
 
           if (managerAssistantChat) {
-            log.info({ jid, text }, 'manager assistant chat handed to openclaw')
+            const reply = await answerManagerAssistant({
+              text,
+              stores: getStoresFromEnv(),
+              recentMessages: await loadRecentMessages(jid, 25),
+              recentKnowledge: await loadRecentKnowledge(jid, 15),
+              now: getNowParts()
+            })
+            if (reply) {
+              await sendAndRemember(jid, reply)
+            }
+            log.info({ jid, text, replied: Boolean(reply) }, 'manager assistant chat handled by openai')
             continue
           }
         }

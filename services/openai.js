@@ -278,3 +278,57 @@ export async function parseManagerCommand({ text, stores, allowedSheets, storeGr
     return null
   }
 }
+
+export async function answerManagerAssistant({ text, stores, recentMessages, recentKnowledge, now }) {
+  const apiKey = process.env.OPENAI_API_KEY
+  if (!apiKey || !text?.trim()) return null
+
+  const user = JSON.stringify(
+    {
+      now,
+      stores,
+      latestMessage: text,
+      recentMessages,
+      recentKnowledge,
+      outputFormat: {
+        reply: 'string'
+      }
+    },
+    null,
+    2
+  )
+
+  const res = await fetch(OPENAI_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({
+      model: OPENAI_MODEL,
+      temperature: 0.3,
+      response_format: { type: 'json_object' },
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You are the HOF retail operations assistant replying inside the manager WhatsApp group. Reply briefly, clearly, and helpfully. Answer manager questions, summarize store operations, and guide next steps when useful. Do not invent figures or status. If the manager greets you, respond warmly and briefly.'
+        },
+        { role: 'user', content: user }
+      ]
+    })
+  })
+
+  if (!res.ok) return null
+  const data = await res.json()
+  const raw = data?.choices?.[0]?.message?.content
+  const parsed = jsonBlock(raw)
+  if (!parsed) return null
+
+  try {
+    const result = JSON.parse(parsed)
+    return typeof result?.reply === 'string' ? result.reply.trim() : null
+  } catch {
+    return null
+  }
+}
