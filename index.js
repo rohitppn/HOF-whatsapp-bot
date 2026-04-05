@@ -49,6 +49,7 @@ app.use(express.json({ limit: '2mb' }))
 const port = process.env.PORT || 3000
 let latestQrText = null
 let latestQrImageUrl = null
+let latestQrExternalUrl = null
 let latestQrUpdatedAt = null
 let latestWaStatus = 'starting'
 
@@ -90,6 +91,7 @@ app.get('/qr', (req, res) => {
         qrReady
           ? `<p>Scan this QR with WhatsApp Linked Devices. This page refreshes every 10 seconds.</p>
              <img src="${latestQrImageUrl}" alt="WhatsApp QR Code" />
+             ${latestQrExternalUrl ? `<p><a href="${latestQrExternalUrl}" target="_blank" rel="noreferrer">Open QR image in a new tab</a></p>` : ''}
              <div class="meta">Last updated: ${latestQrUpdatedAt || 'unknown'}</div>`
           : `<p>No active QR is available right now.</p>
              <p>If the bot is already connected, that is expected. If you need a fresh QR, restart the bot session and reopen this page.</p>
@@ -107,6 +109,7 @@ app.get('/qr.json', (req, res) =>
     connected: latestWaStatus === 'open',
     status: latestWaStatus,
     qrAvailable: Boolean(latestQrImageUrl),
+    qrImageUrl: latestQrExternalUrl,
     updatedAt: latestQrUpdatedAt
   })
 )
@@ -668,17 +671,25 @@ async function startSock() {
     if (qr) {
       latestQrText = qr
       latestQrUpdatedAt = new Date().toISOString()
+      latestQrExternalUrl = `https://api.qrserver.com/v1/create-qr-code/?size=360x360&data=${encodeURIComponent(qr)}`
       qrcodeTerminal.generate(qr, { small: true })
       QRCode.toDataURL(qr, { margin: 1, width: 320 })
         .then(url => {
           latestQrImageUrl = url
-          log.info({ qrUrl: `${getAppBaseUrl()}/qr` }, 'scan WhatsApp QR in browser')
+          log.info(
+            {
+              qrUrl: `${getAppBaseUrl()}/qr`,
+              qrImageUrl: latestQrExternalUrl
+            },
+            'scan WhatsApp QR in browser'
+          )
         })
         .catch(err => log.warn({ err }, 'qr image generation failed'))
     }
     if (connection === 'open') {
       latestQrText = null
       latestQrImageUrl = null
+      latestQrExternalUrl = null
       log.info({ waConnectionState }, 'connected')
     }
     if (connection === 'close') {
