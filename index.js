@@ -1147,7 +1147,16 @@ async function startSock() {
           })
         }
       } catch (err) {
-        log.error({ err }, 'message handler error')
+        log.error(
+          {
+            err,
+            message: err?.message,
+            stack: err?.stack,
+            jid: msg?.key?.remoteJid,
+            messageId: msg?.key?.id || null
+          },
+          'message handler error'
+        )
       }
     }
   })

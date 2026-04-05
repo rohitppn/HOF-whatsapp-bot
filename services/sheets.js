@@ -8,20 +8,46 @@ let sheetsPromise
 
 function getConfig() {
   return {
-    jsonPath: process.env.GS_SERVICE_ACCOUNT_JSON || '',
+    serviceAccount: process.env.GS_SERVICE_ACCOUNT_JSON || '',
     spreadsheetId: process.env.GS_SPREADSHEET_ID || '',
     hourlySheet: process.env.HOURLY_SHEET_NAME || 'Sheet1',
     openingSheet: process.env.OPENING_SHEET_NAME || 'Sheet2'
   }
 }
 
+async function loadServiceAccount(rawValue) {
+  const raw = String(rawValue || '').trim()
+  if (!raw) return null
+
+  const candidates = [raw]
+  if (
+    (raw.startsWith("'") && raw.endsWith("'")) ||
+    (raw.startsWith('"') && raw.endsWith('"'))
+  ) {
+    candidates.push(raw.slice(1, -1))
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate)
+      if (parsed && typeof parsed === 'object' && parsed.client_email && parsed.private_key) {
+        return parsed
+      }
+    } catch {
+      // fall through to the next candidate or file-path handling
+    }
+  }
+
+  const fileContents = await fs.promises.readFile(raw, 'utf8')
+  return JSON.parse(fileContents)
+}
+
 async function getClient() {
   if (sheetsPromise) return sheetsPromise
   const cfg = getConfig()
-  if (!cfg.jsonPath || !cfg.spreadsheetId) return null
+  if (!cfg.serviceAccount || !cfg.spreadsheetId) return null
   sheetsPromise = (async () => {
-    const raw = await fs.promises.readFile(cfg.jsonPath, 'utf8')
-    const creds = JSON.parse(raw)
+    const creds = await loadServiceAccount(cfg.serviceAccount)
     const auth = new google.auth.JWT(
       creds.client_email,
       null,
@@ -33,7 +59,8 @@ async function getClient() {
       {
         sheet: cfg.spreadsheetId,
         hourlySheet: cfg.hourlySheet,
-        openingSheet: cfg.openingSheet
+        openingSheet: cfg.openingSheet,
+        serviceAccountSource: cfg.serviceAccount.includes('client_email') ? 'env_json' : 'file_path'
       },
       'sheets auth ok'
     )
