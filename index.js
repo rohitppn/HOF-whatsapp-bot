@@ -26,12 +26,14 @@ import makeWASocket, {
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
   DisconnectReason,
+  areJidsSameUser,
   isJidGroup,
+  jidNormalizedUser,
   downloadMediaMessage
 } from '@whiskeysockets/baileys'
 
 import { parseHourlyReport } from './services/parser.js'
-import { appendSheetRow, sheetHourly, sheetOpening, getSheetRows, updateSheetRange, updateStaffDress } from './services/sheets.js'
+import { appendSheetRow, sheetBigBill, sheetHourly, sheetOpening, getSheetRows, updateSheetRange, updateStaffDress } from './services/sheets.js'
 import { initDb } from './config/db.js'
 import { addKnowledge, getRecentKnowledge, getRecentMessages, saveGroupMessage } from './services/memory.js'
 import { analyzeDressImage, decideSmartReply, extractOperationalIntent, parseManagerCommand } from './services/openai.js'
@@ -303,11 +305,30 @@ function normalizeHourLabel(raw, fallbackTime) {
 }
 
 function looksLikeManagerCommand(text) {
-  return /@assis?t(?:a|e)nt|\bassis?t(?:a|e)nt\b|send .*group|update .*sheet|fill .*sheet/i.test(text)
+  return /@assis?t(?:a|e)nt|\bassis?t(?:a|e)nt\b|@bot\b|\bbot\b|send .*group|update .*sheet|fill .*sheet/i.test(text)
 }
 
 function looksLikeManagerAssistantChat(text) {
-  return /@assis?t(?:a|e)nt|\bassis?t(?:a|e)nt\b/i.test(text)
+  return /@assis?t(?:a|e)nt|\bassis?t(?:a|e)nt\b|@bot\b|\bbot\b/i.test(text)
+}
+
+function getMentionedJids(content) {
+  return (
+    content?.extendedTextMessage?.contextInfo?.mentionedJid ||
+    content?.imageMessage?.contextInfo?.mentionedJid ||
+    content?.videoMessage?.contextInfo?.mentionedJid ||
+    content?.documentMessage?.contextInfo?.mentionedJid ||
+    content?.buttonsResponseMessage?.contextInfo?.mentionedJid ||
+    content?.listResponseMessage?.contextInfo?.mentionedJid ||
+    []
+  )
+}
+
+function isBotMentioned({ sock, content }) {
+  const botJid = jidNormalizedUser(sock.user?.id || '')
+  if (!botJid) return false
+  const mentioned = getMentionedJids(content)
+  return mentioned.some(jid => areJidsSameUser(jidNormalizedUser(jid), botJid))
 }
 
 function parseBigBillFromText(text) {
@@ -328,6 +349,25 @@ function parseBigBillFromText(text) {
     assistedBy: assistedBy ? assistedBy[1].trim() : null,
     helpedBy: helpedBy ? helpedBy[1].trim() : null
   }
+}
+
+function buildBigBillCelebrationMessage({ store, billValue, quantity, assistedBy, helpedBy }) {
+  return (
+    `Let’s make some noise\n` +
+    `${store} store\n` +
+    `🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥\n\n` +
+    `🤩🤩🤩🤩🤩🤩🤩🤩\n` +
+    `🛍️🎊🛍️🎉🛍️🎊🛍️🎉\n\n` +
+    `🤩Big Bill 🤩\n` +
+    `🛍️ ${store} store 🛍️\n\n` +
+    `*Value – ${formatINR(billValue)}/-*\n\n` +
+    `${quantity != null ? `Quantity – ${quantity}\n\n` : ''}` +
+    `${assistedBy ? `Assisted by – ${assistedBy}\n` : ''}` +
+    `${helpedBy ? `With the help of ${helpedBy}\n\n` : '\n'}` +
+    `👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻\n\n` +
+    `Many more big bills to come!\n\n` +
+    `🧿🧿🧿🧿🧿🧿🧿🧿🧿🧿🧿🧿`
+  )
 }
 
 async function evaluateDressCode(buffer) {
@@ -463,6 +503,18 @@ async function handleBigBill(text, msgTs) {
     helpedBy: parsed.helpedBy,
     date: parts.date
   })
+
+  await sheetBigBill([
+    parts.date,
+    parts.time,
+    parsed.store,
+    parsed.billValue,
+    parsed.quantity ?? '',
+    parsed.assistedBy || '',
+    parsed.helpedBy || '',
+    text,
+    parts.recordedAt
+  ])
 
   return { ok: true, ...parsed, date: parts.date }
 }
@@ -727,6 +779,7 @@ async function startSock() {
           content?.imageMessage?.caption ||
           content?.documentMessage?.caption ||
           ''
+        const botMentioned = isBotMentioned({ sock, content })
 
         const upper = text.toUpperCase()
         const msgTs = Number(msg.messageTimestamp)
@@ -747,8 +800,13 @@ async function startSock() {
 
         if (!text) continue
 
-        if (isManagerGroup && looksLikeManagerCommand(text)) {
-          const managerAssistantChat = looksLikeManagerAssistantChat(text)
+        if (!isManagerGroup && (botMentioned || looksLikeManagerAssistantChat(text) || looksLikeManagerCommand(text))) {
+          log.info({ jid, text, botMentioned }, 'ignored bot-directed instruction outside manager group')
+          continue
+        }
+
+        if (isManagerGroup && (botMentioned || looksLikeManagerCommand(text))) {
+          const managerAssistantChat = botMentioned || looksLikeManagerAssistantChat(text)
           await pushManagerEvent({
             groupJid: jid,
             senderJid: sender,
@@ -864,10 +922,11 @@ async function startSock() {
               factText: `Big bill recorded for ${result.store}: ${result.billValue}.`,
               sourceMessageId: msg.key.id || null
             })
-            await sendAndRemember(
-              jid,
-              `Excellent work, ${result.store}. Big bill of ${formatINR(result.billValue)} has been recorded. Many more strong conversions to come.`
-            )
+            const celebrationMsg = buildBigBillCelebrationMessage(result)
+            await sendAndRemember(jid, celebrationMsg)
+            if (MANAGERS_GROUP_ID && MANAGERS_GROUP_ID !== jid) {
+              await sendAndRemember(MANAGERS_GROUP_ID, celebrationMsg)
+            }
             await pushOpsEvent({
               eventType: 'big_bill',
               groupJid: jid,
@@ -1081,10 +1140,11 @@ async function startSock() {
                 factText: `Big bill recorded for ${result.store}: ${result.billValue}.`,
                 sourceMessageId: msg.key.id || null
               })
-              await sendAndRemember(
-                jid,
-                `Excellent work, ${result.store}. Big bill of ${formatINR(result.billValue)} has been recorded. Many more strong conversions to come.`
-              )
+              const celebrationMsg = buildBigBillCelebrationMessage(result)
+              await sendAndRemember(jid, celebrationMsg)
+              if (MANAGERS_GROUP_ID && MANAGERS_GROUP_ID !== jid) {
+                await sendAndRemember(MANAGERS_GROUP_ID, celebrationMsg)
+              }
               await pushOpsEvent({
                 eventType: 'big_bill_ai_extracted',
                 groupJid: jid,
@@ -1259,9 +1319,9 @@ async function startSock() {
     { timezone: TIMEZONE }
   )
 
-  // Daily top store celebration at 7:00 PM IST (based on Sheet1 achieved totals)
+  // Daily top store celebration at 8:00 PM IST (based on Sheet1 achieved totals)
   cron.schedule(
-    '0 19 * * *',
+    '0 20 * * *',
     async () => {
       const now = getNowParts()
       const rows = await getSheetRows(process.env.HOURLY_SHEET_NAME || 'Sheet1')
@@ -1291,58 +1351,53 @@ async function startSock() {
 
       const msg =
         `Let’s make some noise\n` +
-        `Wow Bill\n` +
-        `🤩🤩🤩🤩🤩🤩🤩🤩\n` +
+        `${topStore} store\n` +
+        `🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥\n\n` +
         `🛍️🎊🛍️🎉🛍️🎊🛍️🎉\n\n` +
-        `${topStore} store*\n\n` +
-        `Value - *${formatINR(top.achieved)}*\n\n` +
-        `Quantity - *${top.qty}*\n\n` +
-        `👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻\n\n` +
-        `Many more to come\n\n` +
-        `So proud of you\n\n` +
-        `🙏🙏🙏🙏🙏🙏\n` +
-        `🧿🧿🧿🧿🧿🧿\n` +
-        `💯💯💯💯💯💯`
+        `Shop Of The Day\n` +
+        `🛍️ ${topStore} store 🛍️\n\n` +
+        `*Achievement – ${formatINR(top.achieved)}*\n\n` +
+        `Walk-ins – ${top.qty}\n\n` +
+        `👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻\n\n` +
+        `Outstanding work team.\n` +
+        `Many more strong bills and conversions to come!\n\n` +
+        `🧿🧿🧿🧿🧿🧿🧿🧿🧿🧿🧿🧿`
 
       for (const group of ALLOWED_GROUPS) {
         await sendAndRemember(group, msg)
         await sleep(randomGapMs())
       }
+
+      if (MANAGERS_GROUP_ID) {
+        const managerMsg =
+          `Highest sales shop of the day\n\n` +
+          `Store: ${topStore}\n` +
+          `Achievement: ${formatINR(top.achieved)}\n` +
+          `Walk-ins: ${top.qty}\n` +
+          `Status: appreciation shared in the store group.`
+        await sendAndRemember(MANAGERS_GROUP_ID, managerMsg)
+      }
     },
     { timezone: TIMEZONE }
   )
 
-  // Daily top big bill summary at 8:00 PM IST
+  // Daily top big bill summary at 8:05 PM IST
   cron.schedule(
-    '0 20 * * *',
+    '5 20 * * *',
     async () => {
       const now = getNowParts()
       const topBill = await getTopBigBillForDate(now.date)
       if (!topBill) return
 
-      const storeMsg =
-        `Let’s make some noise\n` +
-        `Big Bill Store Of The Day\n\n` +
-        `${topBill.store} store\n\n` +
-        `Value - *${formatINR(topBill.billValue)}*\n` +
-        `${topBill.assistedBy ? `Assisted by - ${topBill.assistedBy}\n` : ''}` +
-        `${topBill.helpedBy ? `Supported by - ${topBill.helpedBy}\n` : ''}\n` +
-        `Outstanding effort from the team. Many more strong bills to come.`
+      const storeMsg = buildBigBillCelebrationMessage(topBill)
 
       for (const group of ALLOWED_GROUPS) {
         await sendAndRemember(group, storeMsg)
         await sleep(randomGapMs())
       }
 
-      if (MANAGERS_GROUP_ID) {
-        const managerMsg =
-          `Daily big bill update:\n` +
-          `Top store: ${topBill.store}\n` +
-          `Bill value: ${formatINR(topBill.billValue)}\n` +
-          `${topBill.assistedBy ? `Assisted by: ${topBill.assistedBy}\n` : ''}` +
-          `${topBill.helpedBy ? `Supported by: ${topBill.helpedBy}\n` : ''}` +
-          `Status: shared with store group.`
-        await sendAndRemember(MANAGERS_GROUP_ID, managerMsg)
+      if (MANAGERS_GROUP_ID && !ALLOWED_GROUPS.includes(MANAGERS_GROUP_ID)) {
+        await sendAndRemember(MANAGERS_GROUP_ID, storeMsg)
       }
     },
     { timezone: TIMEZONE }

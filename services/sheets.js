@@ -11,7 +11,8 @@ function getConfig() {
     serviceAccount: process.env.GS_SERVICE_ACCOUNT_JSON || '',
     spreadsheetId: process.env.GS_SPREADSHEET_ID || '',
     hourlySheet: process.env.HOURLY_SHEET_NAME || 'Sheet1',
-    openingSheet: process.env.OPENING_SHEET_NAME || 'Sheet2'
+    openingSheet: process.env.OPENING_SHEET_NAME || 'Sheet2',
+    bigBillSheet: process.env.BIG_BILL_SHEET_NAME || 'Sheet3'
   }
 }
 
@@ -60,6 +61,7 @@ async function getClient() {
         sheet: cfg.spreadsheetId,
         hourlySheet: cfg.hourlySheet,
         openingSheet: cfg.openingSheet,
+        bigBillSheet: cfg.bigBillSheet,
         serviceAccountSource: cfg.serviceAccount.includes('client_email') ? 'env_json' : 'file_path'
       },
       'sheets auth ok'
@@ -96,6 +98,11 @@ export async function sheetHourly(row) {
 export async function sheetOpening(row) {
   const cfg = getConfig()
   await appendRow(cfg.openingSheet, row)
+}
+
+export async function sheetBigBill(row) {
+  const cfg = getConfig()
+  await appendRow(cfg.bigBillSheet, row)
 }
 
 export async function getSheetRows(sheetName) {

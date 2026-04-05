@@ -16,7 +16,7 @@ function getConfig() {
 
 function isEnabled() {
   const cfg = getConfig()
-  return Boolean(cfg.baseUrl && cfg.hookToken)
+  return process.env.OPENCLAW_ENABLED === '1' && Boolean(cfg.baseUrl && cfg.hookToken)
 }
 
 function buildUrl(endpoint) {
