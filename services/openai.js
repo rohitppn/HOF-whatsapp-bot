@@ -1,6 +1,9 @@
+import P from 'pino'
+
 const OPENAI_URL = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1/chat/completions'
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini'
 const OPENAI_VISION_MODEL = process.env.OPENAI_VISION_MODEL || OPENAI_MODEL
+const log = P({ level: process.env.LOG_LEVEL || 'info' })
 
 function jsonBlock(content) {
   const text =
@@ -77,7 +80,11 @@ export async function decideSmartReply({
     })
   })
 
-  if (!res.ok) return null
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    log.warn({ status: res.status, bodyPreview: body.slice(0, 300) }, 'openai decideSmartReply failed')
+    return null
+  }
   const data = await res.json()
   const raw = data?.choices?.[0]?.message?.content
   const parsed = jsonBlock(raw)
@@ -137,7 +144,11 @@ export async function analyzeDressImage({ imageBuffer, storeName = null, caption
     })
   })
 
-  if (!res.ok) return null
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    log.warn({ status: res.status, bodyPreview: body.slice(0, 300) }, 'openai analyzeDressImage failed')
+    return null
+  }
   const data = await res.json()
   const raw = data?.choices?.[0]?.message?.content
   const parsed = jsonBlock(raw)
@@ -208,7 +219,11 @@ export async function extractOperationalIntent({ text, stores, now }) {
     })
   })
 
-  if (!res.ok) return null
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    log.warn({ status: res.status, bodyPreview: body.slice(0, 300) }, 'openai extractOperationalIntent failed')
+    return null
+  }
   const data = await res.json()
   const raw = data?.choices?.[0]?.message?.content
   const parsed = jsonBlock(raw)
@@ -266,7 +281,11 @@ export async function parseManagerCommand({ text, stores, allowedSheets, storeGr
     })
   })
 
-  if (!res.ok) return null
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    log.warn({ status: res.status, bodyPreview: body.slice(0, 300) }, 'openai parseManagerCommand failed')
+    return null
+  }
   const data = await res.json()
   const raw = data?.choices?.[0]?.message?.content
   const parsed = jsonBlock(raw)
@@ -319,7 +338,11 @@ export async function answerManagerAssistant({ text, stores, recentMessages, rec
     })
   })
 
-  if (!res.ok) return null
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    log.warn({ status: res.status, bodyPreview: body.slice(0, 300) }, 'openai answerManagerAssistant failed')
+    return null
+  }
   const data = await res.json()
   const raw = data?.choices?.[0]?.message?.content
   const parsed = jsonBlock(raw)

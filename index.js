@@ -871,6 +871,11 @@ async function startSock() {
             })
             if (reply) {
               await sendAndRemember(jid, reply)
+            } else {
+              await sendAndRemember(
+                jid,
+                'I saw your message, but I could not generate a reply right now. Please check the OpenAI settings and try again.'
+              )
             }
             log.info({ jid, text, replied: Boolean(reply) }, 'manager assistant chat handled by openai')
             continue
