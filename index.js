@@ -54,6 +54,7 @@ let latestQrImageUrl = null
 let latestQrExternalUrl = null
 let latestQrUpdatedAt = null
 let latestWaStatus = 'starting'
+let botPausedUntilMs = 0
 
 function getAppBaseUrl() {
   const explicit = (process.env.APP_BASE_URL || '').trim()
@@ -266,10 +267,42 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
+function isBotPaused() {
+  return botPausedUntilMs > Date.now()
+}
+
+function getPauseRemainingHours() {
+  if (!isBotPaused()) return 0
+  return Math.max(1, Math.ceil((botPausedUntilMs - Date.now()) / (60 * 60 * 1000)))
+}
+
 function randomGapMs() {
   const min = 60 * 1000
   const max = 3 * 60 * 1000
   return Math.floor(Math.random() * (max - min + 1)) + min
+}
+
+function buildHelpMessage() {
+  return (
+    `HOF Bot commands\n\n` +
+    `Trigger words in manager group:\n` +
+    `- @bot\n` +
+    `- @assistant\n` +
+    `- actual WhatsApp mention of the bot\n\n` +
+    `Commands:\n` +
+    `- @bot ON? : check bot status\n` +
+    `- @bot /help : show commands and features\n` +
+    `- @bot send this to stores ... : send message to store groups\n` +
+    `- @bot update sheet ... : update Sheet1 / Sheet2 / Sheet3\n\n` +
+    `Features:\n` +
+    `- Records hourly sales reports\n` +
+    `- Records opening timings and flags late openings\n` +
+    `- Records big bills in Sheet3 and shares appreciation\n` +
+    `- Sends 8 PM manager summary with late openings and top 3 sales stores\n` +
+    `- Sends store-group shop-of-the-day appreciation and big bill celebration\n\n` +
+    `Owner self-chat command:\n` +
+    `- STOP : pause bot automations and replies for 12 hours`
+  )
 }
 
 function storeListText(stores) {
@@ -374,10 +407,12 @@ async function evaluateDressCode(buffer) {
   const image = await Jimp.read(buffer)
   const width = image.bitmap.width
   const height = image.bitmap.height
-  const x0 = Math.floor(width * 0.2)
-  const y0 = Math.floor(height * 0.2)
-  const x1 = Math.max(x0 + 1, Math.floor(width * 0.8))
-  const y1 = Math.max(y0 + 1, Math.floor(height * 0.8))
+  // Use a lenient center/upper-body sample so bright floors, walls, and racks do not
+  // incorrectly fail photos where the staff are still wearing mostly black.
+  const x0 = Math.floor(width * 0.25)
+  const y0 = Math.floor(height * 0.22)
+  const x1 = Math.max(x0 + 1, Math.floor(width * 0.75))
+  const y1 = Math.max(y0 + 1, Math.floor(height * 0.7))
   const stepX = Math.max(1, Math.floor((x1 - x0) / 64))
   const stepY = Math.max(1, Math.floor((y1 - y0) / 64))
   let darkCount = 0
@@ -386,12 +421,12 @@ async function evaluateDressCode(buffer) {
     for (let x = x0; x < x1; x += stepX) {
       const { r, g, b } = intToRGBA(image.getPixelColor(x, y))
       const luminance = 0.299 * r + 0.587 * g + 0.114 * b
-      if (luminance < 70) darkCount += 1
+      if (luminance < 95) darkCount += 1
       total += 1
     }
   }
   const darkRatio = total === 0 ? 0 : darkCount / total
-  return darkRatio >= 0.45
+  return darkRatio >= 0.28
 }
 
 async function handleHourly(text, msgTs) {
@@ -541,6 +576,7 @@ async function startSock() {
   })
 
   sock.ev.on('creds.update', saveCreds)
+  const botUserJid = () => jidNormalizedUser(sock.user?.id || '')
 
   async function rememberMessage(payload) {
     if (!memoryReady) return
@@ -762,12 +798,6 @@ async function startSock() {
           { jid, fromMe: msg.key.fromMe, hasText: Boolean(msg.message) },
           'incoming message'
         )
-        if (!jid || !isAllowedGroup(jid)) continue
-        if (msg.key.fromMe) continue
-
-        const sender = msg.key.participant || msg.key.remoteJid
-        if (!isAllowedSender(sender)) continue
-
         let content = msg.message
         if (content?.ephemeralMessage?.message) content = content.ephemeralMessage.message
         if (content?.viewOnceMessage?.message) content = content.viewOnceMessage.message
@@ -780,6 +810,19 @@ async function startSock() {
           content?.documentMessage?.caption ||
           ''
         const botMentioned = isBotMentioned({ sock, content })
+        const isDirectSelfChat = Boolean(jid && !isJidGroup(jid) && botUserJid() && areJidsSameUser(jidNormalizedUser(jid), botUserJid()))
+
+        if (isDirectSelfChat && msg.key.fromMe && /^\s*STOP\s*$/i.test(text || '')) {
+          botPausedUntilMs = Date.now() + 12 * 60 * 60 * 1000
+          log.warn({ pausedUntil: new Date(botPausedUntilMs).toISOString() }, 'bot paused by owner self-chat')
+          continue
+        }
+
+        if (!jid || !isAllowedGroup(jid)) continue
+        if (msg.key.fromMe) continue
+
+        const sender = msg.key.participant || msg.key.remoteJid
+        if (!isAllowedSender(sender)) continue
 
         const upper = text.toUpperCase()
         const msgTs = Number(msg.messageTimestamp)
@@ -800,12 +843,32 @@ async function startSock() {
 
         if (!text) continue
 
+        if (isBotPaused() && !isManagerGroup) {
+          log.info({ jid, pausedHours: getPauseRemainingHours() }, 'bot paused, skipping non-manager message')
+          continue
+        }
+
         if (!isManagerGroup && (botMentioned || looksLikeManagerAssistantChat(text) || looksLikeManagerCommand(text))) {
           log.info({ jid, text, botMentioned }, 'ignored bot-directed instruction outside manager group')
           continue
         }
 
         if (isManagerGroup && (botMentioned || looksLikeManagerCommand(text))) {
+          if (/@bot\s+on\?/i.test(text) || /\bon\?\b/i.test(text)) {
+            await sendAndRemember(
+              jid,
+              isBotPaused()
+                ? `Yes, I'm activated, but paused for the next ${getPauseRemainingHours()} hour(s).`
+                : `Yes, I'm activated.`
+            )
+            continue
+          }
+
+          if (/@bot\s*\/help/i.test(text) || /@assistant\s*\/help/i.test(text) || /\b\/help\b/i.test(text)) {
+            await sendAndRemember(jid, buildHelpMessage())
+            continue
+          }
+
           const managerAssistantChat = botMentioned || looksLikeManagerAssistantChat(text)
           const allowedSheets = [
             process.env.HOURLY_SHEET_NAME || 'Sheet1',
@@ -883,6 +946,7 @@ async function startSock() {
         }
 
         if (content?.imageMessage) {
+          if (isBotPaused()) continue
           try {
             const buffer = await downloadMediaMessage(
               msg,
@@ -897,7 +961,7 @@ async function startSock() {
               caption: text
             })
             const isOk =
-              aiDress && aiDress.confidence >= 0.55
+              aiDress && aiDress.confidence >= 0.35
                 ? aiDress.compliant
                 : await evaluateDressCode(buffer)
             staffDress = isOk ? 'uniform ok' : 'uniform not ok'
@@ -931,6 +995,11 @@ async function startSock() {
         }
 
         let handled = false
+
+        if (isBotPaused()) {
+          log.info({ jid, pausedHours: getPauseRemainingHours() }, 'bot paused, skipping operational parsing')
+          continue
+        }
 
         if (/big\s*bill/i.test(text) || /assisted by/i.test(text) || /with the help of/i.test(text)) {
           const result = await handleBigBill(text, msgTs)
@@ -1256,6 +1325,7 @@ async function startSock() {
   cron.schedule(
     '30 10 * * *',
     async () => {
+      if (isBotPaused()) return
       const stores = getStoresFromEnv()
       if (stores.length === 0) return
 
@@ -1284,6 +1354,7 @@ async function startSock() {
   cron.schedule(
     '45 14-19 * * *',
     async () => {
+      if (isBotPaused()) return
       const stores = getStoresFromEnv()
       if (stores.length === 0) return
 
@@ -1313,6 +1384,7 @@ async function startSock() {
   cron.schedule(
     '55 14-19 * * *',
     async () => {
+      if (isBotPaused()) return
       const stores = getStoresFromEnv()
       if (stores.length === 0) return
 
@@ -1343,6 +1415,7 @@ async function startSock() {
   cron.schedule(
     '0 20 * * *',
     async () => {
+      if (isBotPaused()) return
       const now = getNowParts()
       const rows = await getSheetRows(process.env.HOURLY_SHEET_NAME || 'Sheet1')
       const todayRows = rows.slice(1).filter(r => r[0] === now.date)
@@ -1359,14 +1432,9 @@ async function startSock() {
       }
       if (agg.size === 0) return
 
-      let topStore = null
-      let top = { achieved: -1, qty: 0 }
-      for (const [store, stats] of agg.entries()) {
-        if (stats.achieved > top.achieved) {
-          topStore = store
-          top = stats
-        }
-      }
+      const rankedStores = [...agg.entries()]
+        .sort((a, b) => b[1].achieved - a[1].achieved)
+      const [topStore, top] = rankedStores[0] || []
       if (!topStore) return
 
       const msg =
@@ -1389,12 +1457,30 @@ async function startSock() {
       }
 
       if (MANAGERS_GROUP_ID) {
+        const openingRows = await getSheetRows(process.env.OPENING_SHEET_NAME || 'Sheet2')
+        const todayOpenings = openingRows.slice(1).filter(r => r[0] === now.date)
+        const lateOpenings = todayOpenings
+          .filter(r => String(r[4] || '').trim().toUpperCase() === 'YES')
+          .map(r => (r[2] || '').toString().trim())
+          .filter(Boolean)
+
+        const allStoreLines = rankedStores
+          .map(([store, stats], index) => `${index + 1}. ${store} - ${formatINR(stats.achieved)} | Walk-ins: ${stats.qty}`)
+          .join('\n')
+
+        const topThreeLines = rankedStores
+          .slice(0, 3)
+          .map(([store, stats], index) => `${index + 1}. ${store} - ${formatINR(stats.achieved)}`)
+          .join('\n')
+
         const managerMsg =
-          `Highest sales shop of the day\n\n` +
-          `Store: ${topStore}\n` +
-          `Achievement: ${formatINR(top.achieved)}\n` +
-          `Walk-ins: ${top.qty}\n` +
-          `Status: appreciation shared in the store group.`
+          `Daily HOF manager update - ${now.date}\n\n` +
+          `Highest sales store:\n` +
+          `${topStore} - ${formatINR(top.achieved)} | Walk-ins: ${top.qty}\n\n` +
+          `Top 3 performers today:\n${topThreeLines}\n\n` +
+          `All store sales today:\n${allStoreLines}\n\n` +
+          `Late openings:\n${lateOpenings.length ? lateOpenings.join(', ') : 'No late openings recorded'}\n\n` +
+          `Store-group appreciation status: shared`
         await sendAndRemember(MANAGERS_GROUP_ID, managerMsg)
       }
     },
@@ -1405,6 +1491,7 @@ async function startSock() {
   cron.schedule(
     '5 20 * * *',
     async () => {
+      if (isBotPaused()) return
       const now = getNowParts()
       const topBill = await getTopBigBillForDate(now.date)
       if (!topBill) return

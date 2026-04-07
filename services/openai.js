@@ -108,8 +108,11 @@ export async function analyzeDressImage({ imageBuffer, storeName = null, caption
 
   const prompt = [
     'You are checking retail staff dress compliance from a store photo.',
-    'Decide whether the visible staff are wearing an all-black uniform.',
-    'Treat mostly-black tops and bottoms as compliant even if shoes, watches, or small accessories are not black.',
+    'Use a lenient retail-grooming standard.',
+    'Approve the photo if the visible staff are mostly dressed in black, especially when the tops are plain black.',
+    'Treat black tops with dark black/navy bottoms as compliant.',
+    'Treat mostly-black tops and bottoms as compliant even if shoes, watches, belts, small logos, hair, skin tone, floor, or store fixtures are not black.',
+    'Only mark non-compliant when the clothing itself is clearly not mostly black or is obviously outside the dress standard.',
     'Return JSON only with keys: compliant, confidence, summary, guidance.',
     'compliant: boolean',
     'confidence: number from 0 to 1',
