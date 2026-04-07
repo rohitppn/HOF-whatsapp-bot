@@ -20,29 +20,59 @@ const parseAmount = raw => {
   return Math.round(n)
 }
 
+const extractLineValue = (text, patterns) => {
+  const lines = String(text || '')
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean)
+
+  for (const line of lines) {
+    for (const pattern of patterns) {
+      const m = line.match(pattern)
+      if (m?.[1]) return m[1].trim()
+    }
+  }
+
+  return null
+}
+
 export function parseHourlyReport(text) {
-  const store = text.match(/STORE\s*[:\-]\s*(.+)/i)
-  const target = text.match(/(?:TODAY'?S\s*)?TARGET\s*[:\-]\s*([^\n\r]+)/i)
-  const achieved = text.match(/(?:ACHIEVED(?:\s*TILL\s*NOW)?)\s*[:\-]\s*([^\n\r]+)/i)
-  const walkIns = text.match(/WALK[\s\u2010-\u2015-]*INS\s*[:\-]?\s*(\d+)/i)
-  const hour = text.match(/(?:HOUR|TIME)\s*[:\-]\s*([^\n\r]+)/i)
+  const store = extractLineValue(text, [
+    /^store\s*[:.\-]\s*(.+)$/i,
+    /^store\s+(.+)$/i
+  ])
+  const target = extractLineValue(text, [
+    /^(?:today'?s?\s*)?target\s*[:.\-]\s*([^\n\r]+)$/i,
+    /^today\s+target\s*[:.\-]?\s*([^\n\r]+)$/i
+  ])
+  const achieved = extractLineValue(text, [
+    /^ach(?:ieved)?(?:\s+till\s+now)?\s*[:.\-]\s*([^\n\r]+)$/i,
+    /^achieved(?:\s+till\s+now)?\s*[:.\-]\s*([^\n\r]+)$/i
+  ])
+  const walkIns = extractLineValue(text, [
+    /^walk(?:[\s\u2010-\u2015-]*ins?|in)\s*[:.\-]?\s*(\d+)$/i,
+    /^waking\s*[:.\-]?\s*(\d+)$/i
+  ])
+  const hour = extractLineValue(text, [
+    /^(?:hour|time)\s*[:.\-]\s*([^\n\r]+)$/i
+  ])
 
   if (!store || !target || !achieved || !walkIns) {
     return { error: 'Invalid hourly report format' }
   }
 
-  const targetVal = parseAmount(target[1])
-  const achievedVal = parseAmount(achieved[1])
+  const targetVal = parseAmount(target)
+  const achievedVal = parseAmount(achieved)
   if (Number.isNaN(targetVal) || Number.isNaN(achievedVal)) {
     return { error: 'Invalid target/achieved value' }
   }
 
   return {
-    store: store[1].trim(),
+    store,
     target: targetVal,
     achieved: achievedVal,
-    walkIns: Number(walkIns[1]),
-    hour: hour ? hour[1].trim() : null
+    walkIns: Number(walkIns),
+    hour: hour || null
   }
 }
 
