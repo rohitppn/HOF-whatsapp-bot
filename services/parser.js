@@ -14,6 +14,7 @@ const parseAmount = raw => {
   if (Number.isNaN(n)) return NaN
 
   if (lower.includes('lakh') || lower.includes('lac')) return Math.round(n * 100000)
+  if (/\bk\b/.test(lower) || /[0-9]k\b/.test(lower)) return Math.round(n * 1000)
   // Common shorthand from stores: "1.10" means 1.10 lakh (110000)
   if (cleaned.includes('.') && n > 0 && n <= 20) return Math.round(n * 100000)
 
@@ -47,17 +48,19 @@ export function parseHourlyReport(text) {
   ])
   const achieved = extractLineValue(text, [
     /^ach(?:ieved)?(?:\s+till\s+now)?\s*[:.\-]\s*([^\n\r]+)$/i,
-    /^achieved(?:\s+till\s+now)?\s*[:.\-]\s*([^\n\r]+)$/i
+    /^achieved(?:\s+till\s+now)?\s*[:.\-]\s*([^\n\r]+)$/i,
+    /^ach\s*[:.\-]\s*([^\n\r]+)$/i
   ])
   const walkIns = extractLineValue(text, [
     /^walk(?:[\s\u2010-\u2015-]*ins?|in)\s*[:.\-]?\s*(\d+)$/i,
-    /^waking\s*[:.\-]?\s*(\d+)$/i
+    /^waking\s*[:.\-]?\s*(\d+)$/i,
+    /^walkin'?s?\s*[:.\-]?\s*(\d+)$/i
   ])
   const hour = extractLineValue(text, [
     /^(?:hour|time)\s*[:.\-]\s*([^\n\r]+)$/i
   ])
 
-  if (!store || !target || !achieved || !walkIns) {
+  if (!store || !target || !achieved) {
     return { error: 'Invalid hourly report format' }
   }
 
@@ -71,7 +74,7 @@ export function parseHourlyReport(text) {
     store,
     target: targetVal,
     achieved: achievedVal,
-    walkIns: Number(walkIns),
+    walkIns: walkIns != null ? Number(walkIns) : 0,
     hour: hour || null
   }
 }
