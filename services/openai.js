@@ -36,7 +36,8 @@ export async function decideSmartReply({
     'Do not reply to casual chatter, acknowledgements, or messages already handled by structured workflows.',
     'If a store issue, escalation, question, delay, confusion, or important operational instruction appears, you may reply.',
     'Keep replies concise, respectful, professional, and useful.',
-    'Also extract durable facts that should be stored as bot knowledge.'
+    'Also extract durable facts that should be stored as bot knowledge.',
+    'Return JSON only.'
   ].join(' ')
 
   const user = JSON.stringify(
@@ -215,7 +216,7 @@ export async function extractOperationalIntent({ text, stores, now }) {
         {
           role: 'system',
           content:
-            'Extract structured retail-ops intent from WhatsApp messages. Use kind=none if the message is not an operational report. Ask clarification only when the user clearly intends to report operational data but key fields are missing.'
+            'Extract structured retail-ops intent from WhatsApp messages. Use kind=none if the message is not an operational report. Ask clarification only when the user clearly intends to report operational data but key fields are missing. Return JSON only.'
         },
         { role: 'user', content: user }
       ]
@@ -277,7 +278,7 @@ export async function parseManagerCommand({ text, stores, allowedSheets, storeGr
         {
           role: 'system',
           content:
-            'Parse manager instructions. Only return an action if the message is a direct bot command to send a message to store groups or update Google Sheets.'
+            'Parse manager instructions. Only return an action if the message is a direct bot command to send a message to store groups or update Google Sheets. Return JSON only.'
         },
         { role: 'user', content: user }
       ]
@@ -334,7 +335,7 @@ export async function answerManagerAssistant({ text, stores, recentMessages, rec
         {
           role: 'system',
           content:
-            'You are the HOF retail operations assistant replying inside the manager WhatsApp group. Reply briefly, clearly, and helpfully. Answer manager questions, summarize store operations, and guide next steps when useful. Do not invent figures or status. If the manager greets you, respond warmly and briefly.'
+            'You are the HOF retail operations assistant replying inside the manager WhatsApp group. Reply briefly, clearly, and helpfully. Answer manager questions, summarize store operations, and guide next steps when useful. Do not invent figures or status. If the manager greets you, respond warmly and briefly. Return JSON only.'
         },
         { role: 'user', content: user }
       ]
