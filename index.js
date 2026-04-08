@@ -338,7 +338,9 @@ function normalizeHourLabel(raw, fallbackTime) {
 }
 
 function looksLikeManagerCommand(text) {
-  return /@assis?t(?:a|e)nt|\bassis?t(?:a|e)nt\b|@bot\b|\bbot\b|send .*group|update .*sheet|fill .*sheet/i.test(text)
+  return /\b(send|share|broadcast|announce|message)\b.*\b(store|stores|group|groups|shop|shops)\b|\b(update|fill|append|write)\b.*\bsheet\b|\b(sheet1|sheet2|sheet3)\b|\b(store data|all store data|summary now|get data|show data)\b/i.test(
+    text
+  )
 }
 
 function looksLikeManagerAssistantChat(text) {
@@ -891,12 +893,15 @@ async function startSock() {
             })
           }
 
-          const cmd = await parseManagerCommand({
-            text,
-            stores: getStoresFromEnv(),
-            allowedSheets,
-            storeGroups: ALLOWED_GROUPS
-          })
+          const explicitManagerCommand = looksLikeManagerCommand(text)
+          const cmd = explicitManagerCommand
+            ? await parseManagerCommand({
+                text,
+                stores: getStoresFromEnv(),
+                allowedSheets,
+                storeGroups: ALLOWED_GROUPS
+              })
+            : null
 
           if (cmd?.action === 'send_group_message' && cmd.message) {
             const groups = Array.isArray(cmd.targetGroups) && cmd.targetGroups.length ? cmd.targetGroups : ALLOWED_GROUPS
