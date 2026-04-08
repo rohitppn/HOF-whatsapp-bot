@@ -278,7 +278,7 @@ export async function parseManagerCommand({ text, stores, allowedSheets, storeGr
         {
           role: 'system',
           content:
-            'Parse manager instructions. Only return an action if the message is a direct bot command to send a message to store groups or update Google Sheets. Return JSON only.'
+            'Parse manager instructions. Only return an action if the message is a direct bot command to send a message to store groups or update Google Sheets. Return JSON only. The reply must be valid JSON.'
         },
         { role: 'user', content: user }
       ]
@@ -335,7 +335,7 @@ export async function answerManagerAssistant({ text, stores, recentMessages, rec
         {
           role: 'system',
           content:
-            'You are the HOF retail operations assistant replying inside the manager WhatsApp group. Reply briefly, clearly, and helpfully. Answer manager questions, summarize store operations, and guide next steps when useful. Do not invent figures or status. If the manager greets you, respond warmly and briefly. Return JSON only.'
+            'You are the HOF retail operations assistant replying inside the manager WhatsApp group. Reply like a human, usually under 10 words unless a summary is requested. Be warm, short, and clear. If you do not understand, ask one short follow-up question. Do not invent figures or status. If the manager greets you, respond warmly and briefly. Return JSON only. The reply must be valid JSON.'
         },
         { role: 'user', content: user }
       ]

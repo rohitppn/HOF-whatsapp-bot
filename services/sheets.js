@@ -12,7 +12,8 @@ function getConfig() {
     spreadsheetId: process.env.GS_SPREADSHEET_ID || '',
     hourlySheet: process.env.HOURLY_SHEET_NAME || 'Sheet1',
     openingSheet: process.env.OPENING_SHEET_NAME || 'Sheet2',
-    bigBillSheet: process.env.BIG_BILL_SHEET_NAME || 'Sheet3'
+    bigBillSheet: process.env.BIG_BILL_SHEET_NAME || 'Sheet3',
+    memorySheet: process.env.MEMORY_SHEET_NAME || 'Sheet4'
   }
 }
 
@@ -62,6 +63,7 @@ async function getClient() {
         hourlySheet: cfg.hourlySheet,
         openingSheet: cfg.openingSheet,
         bigBillSheet: cfg.bigBillSheet,
+        memorySheet: cfg.memorySheet,
         serviceAccountSource: cfg.serviceAccount.includes('client_email') ? 'env_json' : 'file_path'
       },
       'sheets auth ok'
@@ -105,6 +107,11 @@ export async function sheetBigBill(row) {
   await appendRow(cfg.bigBillSheet, row)
 }
 
+export async function sheetMemory(row) {
+  const cfg = getConfig()
+  await appendRow(cfg.memorySheet, row)
+}
+
 export async function getSheetRows(sheetName) {
   const cfg = getConfig()
   const sheets = await getClient()
@@ -115,6 +122,39 @@ export async function getSheetRows(sheetName) {
     range
   })
   return res.data.values || []
+}
+
+function getColumnValue(row, index) {
+  return (row?.[index] || '').toString().trim()
+}
+
+export async function getMemoryContext() {
+  const cfg = getConfig()
+  const rows = await getSheetRows(cfg.memorySheet)
+  if (!rows.length) {
+    return {
+      aboutHof: [],
+      totalStores: [],
+      memory: [],
+      promptTasks: [],
+      memoryWriter: []
+    }
+  }
+
+  const dataRows = rows.slice(1)
+  return {
+    aboutHof: dataRows.map(row => getColumnValue(row, 0)).filter(Boolean),
+    totalStores: dataRows.map(row => getColumnValue(row, 1)).filter(Boolean),
+    memory: dataRows.map(row => getColumnValue(row, 2)).filter(Boolean),
+    promptTasks: dataRows.map(row => getColumnValue(row, 3)).filter(Boolean),
+    memoryWriter: dataRows.map(row => getColumnValue(row, 4)).filter(Boolean)
+  }
+}
+
+export async function appendMemoryEntry(note, source = 'bot') {
+  if (!String(note || '').trim()) return false
+  await sheetMemory(['', '', String(note).trim(), '', source])
+  return true
 }
 
 export async function updateStaffDress(sheetName, date, store, value) {

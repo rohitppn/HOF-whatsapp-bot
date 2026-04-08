@@ -33,7 +33,17 @@ import makeWASocket, {
 } from '@whiskeysockets/baileys'
 
 import { parseHourlyReport } from './services/parser.js'
-import { appendSheetRow, sheetBigBill, sheetHourly, sheetOpening, getSheetRows, updateSheetRange, updateStaffDress } from './services/sheets.js'
+import {
+  appendMemoryEntry,
+  appendSheetRow,
+  getMemoryContext,
+  getSheetRows,
+  sheetBigBill,
+  sheetHourly,
+  sheetOpening,
+  updateSheetRange,
+  updateStaffDress
+} from './services/sheets.js'
 import { initDb } from './config/db.js'
 import { addKnowledge, getRecentKnowledge, getRecentMessages, saveGroupMessage } from './services/memory.js'
 import { analyzeDressImage, answerManagerAssistant, decideSmartReply, extractOperationalIntent, parseManagerCommand } from './services/openai.js'
@@ -55,6 +65,8 @@ let latestQrExternalUrl = null
 let latestQrUpdatedAt = null
 let latestWaStatus = 'starting'
 let botPausedUntilMs = 0
+let runtimeMemoryCache = { loadedAt: 0, context: null }
+const temporaryStoreClosures = new Map()
 
 function getAppBaseUrl() {
   const explicit = (process.env.APP_BASE_URL || '').trim()
@@ -184,6 +196,67 @@ function getStoresFromEnv() {
   } catch {
     return []
   }
+}
+
+function normalizeStoreName(value) {
+  return String(value || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+}
+
+function canonicalStoreName(input, stores = getStoresFromEnv()) {
+  const wanted = normalizeStoreName(input)
+  if (!wanted) return null
+  const exact = stores.find(store => normalizeStoreName(store) === wanted)
+  if (exact) return exact
+  const fuzzy = stores.find(store => normalizeStoreName(store).includes(wanted) || wanted.includes(normalizeStoreName(store)))
+  return fuzzy || null
+}
+
+function getActiveStores() {
+  const now = Date.now()
+  return getStoresFromEnv().filter(store => {
+    const until = temporaryStoreClosures.get(normalizeStoreName(store)) || 0
+    return until <= now
+  })
+}
+
+function getClosedStoresToday() {
+  const now = Date.now()
+  return getStoresFromEnv().filter(store => {
+    const until = temporaryStoreClosures.get(normalizeStoreName(store)) || 0
+    return until > now
+  })
+}
+
+function markStoreClosed(storeName, hours = 24) {
+  const canonical = canonicalStoreName(storeName)
+  if (!canonical) return null
+  temporaryStoreClosures.set(
+    normalizeStoreName(canonical),
+    Date.now() + hours * 60 * 60 * 1000
+  )
+  return canonical
+}
+
+function reopenStore(storeName) {
+  const canonical = canonicalStoreName(storeName)
+  if (!canonical) return null
+  temporaryStoreClosures.delete(normalizeStoreName(canonical))
+  return canonical
+}
+
+function closeAllStores(hours = 24) {
+  const stores = getStoresFromEnv()
+  for (const store of stores) {
+    temporaryStoreClosures.set(normalizeStoreName(store), Date.now() + hours * 60 * 60 * 1000)
+  }
+  return stores
+}
+
+function reopenAllStores() {
+  temporaryStoreClosures.clear()
 }
 
 function getPartsFromDate(date) {
