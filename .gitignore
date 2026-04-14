@@ -25,3 +25,4 @@ build/
 
 gen-lang-client-*.json
 service-account*.json
+google-service-account.json

@@ -5,6 +5,7 @@ import P from 'pino'
 const log = P({ level: process.env.LOG_LEVEL || 'info' })
 
 let sheetsPromise
+let sheetsDisabledReasonLogged = false
 
 function getConfig() {
   return {
@@ -15,6 +16,23 @@ function getConfig() {
     bigBillSheet: process.env.BIG_BILL_SHEET_NAME || 'Sheet3',
     memorySheet: process.env.MEMORY_SHEET_NAME || 'Sheet4'
   }
+}
+
+function looksLikePlaceholder(value) {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (!normalized) return true
+  return (
+    normalized.includes('/absolute/path/to/') ||
+    normalized.includes('your_google_sheet_id') ||
+    normalized.includes('your_openai_api_key') ||
+    normalized === 'changeme'
+  )
+}
+
+function logSheetsDisabled(reason, extra = {}) {
+  if (sheetsDisabledReasonLogged) return
+  sheetsDisabledReasonLogged = true
+  log.warn({ reason, ...extra }, 'google sheets disabled; bot will continue without sheet writes')
 }
 
 async function loadServiceAccount(rawValue) {
@@ -47,28 +65,43 @@ async function loadServiceAccount(rawValue) {
 async function getClient() {
   if (sheetsPromise) return sheetsPromise
   const cfg = getConfig()
-  if (!cfg.serviceAccount || !cfg.spreadsheetId) return null
+  if (!cfg.serviceAccount || !cfg.spreadsheetId) {
+    logSheetsDisabled('missing GS_SERVICE_ACCOUNT_JSON or GS_SPREADSHEET_ID')
+    return null
+  }
+  if (looksLikePlaceholder(cfg.serviceAccount) || looksLikePlaceholder(cfg.spreadsheetId)) {
+    logSheetsDisabled('placeholder Google Sheets config detected')
+    return null
+  }
   sheetsPromise = (async () => {
-    const creds = await loadServiceAccount(cfg.serviceAccount)
-    const auth = new google.auth.JWT(
-      creds.client_email,
-      null,
-      creds.private_key,
-      ['https://www.googleapis.com/auth/spreadsheets']
-    )
-    await auth.authorize()
-    log.info(
-      {
-        sheet: cfg.spreadsheetId,
-        hourlySheet: cfg.hourlySheet,
-        openingSheet: cfg.openingSheet,
-        bigBillSheet: cfg.bigBillSheet,
-        memorySheet: cfg.memorySheet,
-        serviceAccountSource: cfg.serviceAccount.includes('client_email') ? 'env_json' : 'file_path'
-      },
-      'sheets auth ok'
-    )
-    return google.sheets({ version: 'v4', auth })
+    try {
+      const creds = await loadServiceAccount(cfg.serviceAccount)
+      const auth = new google.auth.JWT(
+        creds.client_email,
+        null,
+        creds.private_key,
+        ['https://www.googleapis.com/auth/spreadsheets']
+      )
+      await auth.authorize()
+      log.info(
+        {
+          sheet: cfg.spreadsheetId,
+          hourlySheet: cfg.hourlySheet,
+          openingSheet: cfg.openingSheet,
+          bigBillSheet: cfg.bigBillSheet,
+          memorySheet: cfg.memorySheet,
+          serviceAccountSource: cfg.serviceAccount.includes('client_email') ? 'env_json' : 'file_path'
+        },
+        'sheets auth ok'
+      )
+      return google.sheets({ version: 'v4', auth })
+    } catch (err) {
+      sheetsPromise = null
+      logSheetsDisabled(err?.code === 'ENOENT' ? 'service account file not found' : 'sheets auth failed', {
+        error: err?.message || 'unknown error'
+      })
+      return null
+    }
   })()
   return sheetsPromise
 }
@@ -76,7 +109,7 @@ async function getClient() {
 async function appendRow(sheetName, values) {
   const cfg = getConfig()
   const sheets = await getClient()
-  if (!sheets) return
+  if (!sheets) return false
   const range = `${sheetName}!A:Z`
   const res = await sheets.spreadsheets.values.append({
     spreadsheetId: cfg.spreadsheetId,
@@ -86,30 +119,31 @@ async function appendRow(sheetName, values) {
     requestBody: { values: [values] }
   })
   log.info({ updatedRange: res.data.updates?.updatedRange, sheet: sheetName }, 'sheet append ok')
+  return true
 }
 
 export async function appendSheetRow(sheetName, row) {
-  await appendRow(sheetName, row)
+  return appendRow(sheetName, row)
 }
 
 export async function sheetHourly(row) {
   const cfg = getConfig()
-  await appendRow(cfg.hourlySheet, row)
+  return appendRow(cfg.hourlySheet, row)
 }
 
 export async function sheetOpening(row) {
   const cfg = getConfig()
-  await appendRow(cfg.openingSheet, row)
+  return appendRow(cfg.openingSheet, row)
 }
 
 export async function sheetBigBill(row) {
   const cfg = getConfig()
-  await appendRow(cfg.bigBillSheet, row)
+  return appendRow(cfg.bigBillSheet, row)
 }
 
 export async function sheetMemory(row) {
   const cfg = getConfig()
-  await appendRow(cfg.memorySheet, row)
+  return appendRow(cfg.memorySheet, row)
 }
 
 export async function getSheetRows(sheetName) {
@@ -153,39 +187,7 @@ export async function getMemoryContext() {
 
 export async function appendMemoryEntry(note, source = 'bot') {
   if (!String(note || '').trim()) return false
-  await sheetMemory(['', '', String(note).trim(), '', source])
-  return true
-}
-
-export async function updateStaffDress(sheetName, date, store, value) {
-  const cfg = getConfig()
-  const sheets = await getClient()
-  if (!sheets) return false
-  const rows = await getSheetRows(sheetName)
-  if (rows.length === 0) return false
-
-  // Find first row with matching date + store (columns A and C)
-  let targetRow = -1
-  for (let i = 1; i < rows.length; i += 1) {
-    const row = rows[i]
-    const rowDate = (row[0] || '').toString().trim()
-    const rowStore = (row[2] || '').toString().trim().toLowerCase()
-    if (rowDate === date && rowStore === store.toLowerCase()) {
-      targetRow = i + 1 // 1-based row index in sheet
-      break
-    }
-  }
-  if (targetRow === -1) return false
-
-  // Staff Dress column is H
-  const range = `${sheetName}!H${targetRow}`
-  await sheets.spreadsheets.values.update({
-    spreadsheetId: cfg.spreadsheetId,
-    range,
-    valueInputOption: 'USER_ENTERED',
-    requestBody: { values: [[value]] }
-  })
-  return true
+  return sheetMemory(['', '', String(note).trim(), '', source])
 }
 
 export async function updateSheetRange(sheetName, rangeA1, values) {
