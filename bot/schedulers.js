@@ -3,11 +3,15 @@ import { getSheetRows } from '../services/sheets.js'
 import { getTopBigBillForDate } from '../services/bigBills.js'
 import { TIMEZONE } from './runtime.js'
 import { isBotPaused } from './state.js'
-import { ALLOWED_GROUPS, MANAGERS_GROUP_ID, getStoresFromEnv } from './storeConfig.js'
+import {
+  ALLOWED_GROUPS,
+  MANAGERS_GROUP_ID,
+  buildStoreReminderPayload,
+  getStoresFromEnv
+} from './storeConfig.js'
 import {
   buildBigBillCelebrationMessage,
   formatINR,
-  storeListText,
   toNumber
 } from './messageUtils.js'
 import { getNowParts, hourBlockFromHour, randomGapMs, sleep } from './time.js'
@@ -33,7 +37,10 @@ export function registerScheduledJobs({ state, sendAndRemember }) {
       const missing = stores.filter(s => !reported.has(s.toLowerCase()))
       if (missing.length === 0) return
 
-      const msg = `Pending opening report: ${storeListText(missing)}. Kindly send your opening update immediately.`
+      const msg = buildStoreReminderPayload(
+        missing,
+        'Kindly send your opening update immediately.'
+      )
       for (const group of ALLOWED_GROUPS) {
         await sendAndRemember(group, msg)
         await sleep(randomGapMs())
@@ -65,39 +72,10 @@ export function registerScheduledJobs({ state, sendAndRemember }) {
       const missing = stores.filter(s => !reported.has(s.toLowerCase()))
       if (missing.length === 0) return
 
-      const msg = `${storeListText(missing)}, please send your hourly sales report for ${hourBlock}.`
-      for (const group of ALLOWED_GROUPS) {
-        await sendAndRemember(group, msg)
-        await sleep(randomGapMs())
-      }
-    },
-    { timezone: TIMEZONE }
-  )
-
-  cron.schedule(
-    '55 14-19 * * *',
-    async () => {
-      if (isBotPaused(state)) return
-
-      const stores = getStoresFromEnv()
-      if (stores.length === 0) return
-
-      const now = getNowParts()
-      const hourBlock = hourBlockFromHour(Number(now.time.split(':')[0]))
-      const rows = await getSheetRows(process.env.HOURLY_SHEET_NAME || 'Sheet1')
-      const reported = new Set(
-        rows
-          .slice(1)
-          .filter(
-            r => r[0] === now.date && (r[3] || '').toString().trim() === hourBlock
-          )
-          .map(r => (r[2] || '').toString().trim().toLowerCase())
+      const msg = buildStoreReminderPayload(
+        missing,
+        `please send your hourly sales report for ${hourBlock}.`
       )
-
-      const missing = stores.filter(s => !reported.has(s.toLowerCase()))
-      if (missing.length === 0) return
-
-      const msg = `${storeListText(missing)} have not submitted ${hourBlock} report. Kindly update immediately.`
       for (const group of ALLOWED_GROUPS) {
         await sendAndRemember(group, msg)
         await sleep(randomGapMs())

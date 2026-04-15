@@ -77,18 +77,20 @@ export async function startSock({ app, state }) {
     }
   }
 
-  async function sendAndRemember(groupJid, text) {
+  async function sendAndRemember(groupJid, message) {
     if (waConnectionState !== 'open') {
       const err = new Error(`whatsapp not connected (${waConnectionState})`)
       err.code = 'WA_NOT_CONNECTED'
       throw err
     }
-    await sock.sendMessage(groupJid, { text })
+    const payload =
+      typeof message === 'string' ? { text: message } : { ...(message || {}) }
+    await sock.sendMessage(groupJid, payload)
     await rememberMessage({
       groupJid,
       direction: 'outbound',
       messageType: 'text',
-      textContent: text
+      textContent: payload.text || ''
     })
   }
 

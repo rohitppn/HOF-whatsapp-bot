@@ -44,6 +44,20 @@ export function normalizeStoreName(value) {
   return String(value || '').trim().replace(/\s+/g, ' ').toLowerCase()
 }
 
+function envKeyForStore(storeName) {
+  return `STORE_CONTACT_${String(storeName || '')
+    .trim()
+    .replace(/[^a-z0-9]+/gi, '_')
+    .replace(/^_+|_+$/g, '')
+    .toUpperCase()}`
+}
+
+function normalizePhoneNumber(value) {
+  const digits = String(value || '').replace(/\D/g, '')
+  if (!digits) return ''
+  return digits.startsWith('91') ? digits : `91${digits}`
+}
+
 export function canonicalStoreName(input, stores = getStoresFromEnv()) {
   const wanted = normalizeStoreName(input)
   if (!wanted) return null
@@ -58,6 +72,35 @@ export function canonicalStoreName(input, stores = getStoresFromEnv()) {
         wanted.includes(normalizeStoreName(store))
     ) || null
   )
+}
+
+export function getStoreContactNumber(storeName) {
+  const canonical = canonicalStoreName(storeName) || storeName
+  const envKey = envKeyForStore(canonical)
+  return normalizePhoneNumber(process.env[envKey] || '')
+}
+
+export function getStoreContactJid(storeName) {
+  const number = getStoreContactNumber(storeName)
+  return number ? `${number}@s.whatsapp.net` : null
+}
+
+export function buildStoreReminderPayload(stores, messageSuffix) {
+  const mentions = []
+  const tokens = stores.map(store => {
+    const number = getStoreContactNumber(store)
+    const jid = getStoreContactJid(store)
+    if (jid) {
+      mentions.push(jid)
+      return `@${number}`
+    }
+    return store
+  })
+
+  return {
+    text: `${tokens.join(', ')} ${messageSuffix}`.trim(),
+    mentions
+  }
 }
 
 export function getActiveStores(state) {

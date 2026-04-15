@@ -281,12 +281,6 @@ export function registerMessageHandler({
               factText: `Hourly report recorded for ${result.store} for ${result.hourBlock}.`,
               sourceMessageId: msg.key.id || null
             })
-            await sendAndRemember(
-              jid,
-              result.savedToSheets
-                ? `Thank you, ${result.store}. Your hourly report for ${result.hourBlock} has been saved to the sheet. Keep the momentum going.`
-                : `Thank you, ${result.store}. Your hourly report for ${result.hourBlock} was received, but Google Sheets is not configured yet.`
-            )
             await pushOpsEvent({
               eventType: 'hourly_report',
               groupJid: jid,
@@ -378,12 +372,6 @@ export function registerMessageHandler({
               factText: `Hourly report recorded for ${store} for ${hourBlock}.`,
               sourceMessageId: msg.key.id || null
             })
-            await sendAndRemember(
-              jid,
-              extractedSaveOk
-                ? `Thank you, ${store}. Your hourly report for ${hourBlock} has been saved to the sheet. Keep the momentum going.`
-                : `Thank you, ${store}. Your hourly report for ${hourBlock} was received, but Google Sheets is not configured yet.`
-            )
             await pushOpsEvent({
               eventType: 'hourly_report_ai_extracted',
               groupJid: jid,
