@@ -92,6 +92,28 @@ export async function startSock({ app, state }) {
     })
   }
 
+  async function logParticipatingGroups() {
+    try {
+      const chats = await sock.groupFetchAllParticipating()
+      const entries = Object.entries(chats || {})
+        .map(([id, chat]) => ({
+          id,
+          name: chat?.subject || 'Unknown Group'
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name))
+
+      log.info({ count: entries.length }, 'fetched participating groups')
+      for (const entry of entries) {
+        log.info(
+          { groupName: entry.name, groupJid: entry.id },
+          'group discovered'
+        )
+      }
+    } catch (err) {
+      log.warn({ err }, 'failed to fetch participating groups')
+    }
+  }
+
   async function pushOpsEvent(event) {
     if (OPENCLAW_MANAGER_ONLY || !isOpenClawEnabled()) return
     try {
@@ -154,6 +176,9 @@ export async function startSock({ app, state }) {
       state.latestQrImageUrl = null
       state.latestQrExternalUrl = null
       log.info({ waConnectionState }, 'connected')
+      logParticipatingGroups().catch(err =>
+        log.warn({ err }, 'failed to log participating groups')
+      )
     }
 
     if (connection === 'close') {
