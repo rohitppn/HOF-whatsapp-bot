@@ -265,8 +265,7 @@ export function registerMessageHandler({
         if (
           /STORE\s*[:\-]/i.test(text) &&
           /(TARGET|TODAY'?S\s*TARGET)\s*[:\-]/i.test(text) &&
-          /ACHIEVED(\s*TILL\s*NOW)?\s*[:\-]/i.test(text) &&
-          /WALK[\s\u2010-\u2015-]*INS/i.test(text)
+          /ACHIEVED(\s*TILL\s*NOW)?\s*[:\-]/i.test(text)
         ) {
           const result = await handleHourly(text, msgTs)
           if (result.error) {

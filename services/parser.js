@@ -1,6 +1,12 @@
+import { parseStoreFromLooseText } from '../bot/messageUtils.js'
+
 const numberClean = val =>
   val
-    .replace(/[₹,\s]/g, '')
+    .replace(/[₹,\s*]/g, '')
+    .replace(/\/-$/g, '')
+    .replace(/\/$/g, '')
+    .replace(/-$/g, '')
+    .replace(/[.]+$/g, '')
     .trim()
 
 const parseAmount = raw => {
@@ -10,11 +16,22 @@ const parseAmount = raw => {
   const cleaned = numberClean(lower)
   if (!cleaned) return NaN
 
+  const numericPart = cleaned.replace(/[^0-9.]/g, '')
+  if (!numericPart) return NaN
+
+  if (lower.includes('lakh') || lower.includes('lac')) {
+    const n = Number(numericPart)
+    return Number.isNaN(n) ? NaN : Math.round(n * 100000)
+  }
+
+  if (/\bk\b/.test(lower) || /[0-9]k[^\w]*/.test(lower)) {
+    const n = Number(numericPart)
+    return Number.isNaN(n) ? NaN : Math.round(n * 1000)
+  }
+
   const n = Number(cleaned)
   if (Number.isNaN(n)) return NaN
 
-  if (lower.includes('lakh') || lower.includes('lac')) return Math.round(n * 100000)
-  if (/\bk\b/.test(lower) || /[0-9]k\b/.test(lower)) return Math.round(n * 1000)
   // Common shorthand from stores: "1.10" means 1.10 lakh (110000)
   if (cleaned.includes('.') && n > 0 && n <= 20) return Math.round(n * 100000)
 
@@ -38,10 +55,11 @@ const extractLineValue = (text, patterns) => {
 }
 
 export function parseHourlyReport(text) {
-  const store = extractLineValue(text, [
-    /^store\s*[:.\-]\s*(.+)$/i,
-    /^store\s+(.+)$/i
-  ])
+  const store =
+    extractLineValue(text, [
+      /^store\s*[:.\-]\s*(.+)$/i,
+      /^store\s+(.+)$/i
+    ]) || parseStoreFromLooseText(text)
   const target = extractLineValue(text, [
     /^(?:today'?s?\s*)?target\s*[:.\-]\s*([^\n\r]+)$/i,
     /^today\s+target\s*[:.\-]?\s*([^\n\r]+)$/i
@@ -71,7 +89,7 @@ export function parseHourlyReport(text) {
   }
 
   return {
-    store,
+    store: String(store || '').replace(/^\*+|\*+$/g, '').trim(),
     target: targetVal,
     achieved: achievedVal,
     walkIns: walkIns != null ? Number(walkIns) : 0,
