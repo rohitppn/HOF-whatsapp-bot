@@ -7,6 +7,7 @@ import {
   ALLOWED_GROUPS,
   MANAGERS_GROUP_ID,
   buildStoreReminderPayload,
+  canonicalStoreName,
   getStoresFromEnv
 } from './storeConfig.js'
 import {
@@ -14,7 +15,45 @@ import {
   formatINR,
   toNumber
 } from './messageUtils.js'
-import { getNowParts, hourBlockFromHour, randomGapMs, sleep } from './time.js'
+import {
+  getNowParts,
+  hourBlockFromHour,
+  normalizeHourLabel,
+  randomGapMs,
+  sleep
+} from './time.js'
+
+function buildReportedStoreSet(storeValues, stores) {
+  const reported = new Set()
+
+  for (const value of storeValues) {
+    const raw = (value || '').toString().trim()
+    if (!raw) continue
+    const canonical = canonicalStoreName(raw, stores) || raw
+    reported.add(canonical.toLowerCase())
+  }
+
+  return reported
+}
+
+function buildHourlyReportedStoreSet(rows, now, stores, expectedHourBlock) {
+  const reported = new Set()
+
+  for (const row of rows.slice(1)) {
+    if (row[0] !== now.date) continue
+
+    const rowHourBlock = normalizeHourLabel(row[3], now.time)
+    if (rowHourBlock !== expectedHourBlock) continue
+
+    const rawStore = (row[2] || '').toString().trim()
+    if (!rawStore) continue
+
+    const canonical = canonicalStoreName(rawStore, stores) || rawStore
+    reported.add(canonical.toLowerCase())
+  }
+
+  return reported
+}
 
 export function registerScheduledJobs({ state, sendAndRemember }) {
   cron.schedule(
@@ -27,14 +66,17 @@ export function registerScheduledJobs({ state, sendAndRemember }) {
 
       const now = getNowParts()
       const rows = await getSheetRows(process.env.OPENING_SHEET_NAME || 'Sheet2')
-      const reported = new Set(
+      const reported = buildReportedStoreSet(
         rows
           .slice(1)
           .filter(r => r[0] === now.date)
-          .map(r => (r[2] || '').toString().trim().toLowerCase())
+          .map(r => r[2]),
+        stores
       )
 
-      const missing = stores.filter(s => !reported.has(s.toLowerCase()))
+      const missing = stores.filter(
+        s => !reported.has((canonicalStoreName(s, stores) || s).toLowerCase())
+      )
       if (missing.length === 0) return
 
       const msg = buildStoreReminderPayload(
@@ -60,16 +102,11 @@ export function registerScheduledJobs({ state, sendAndRemember }) {
       const now = getNowParts()
       const hourBlock = hourBlockFromHour(Number(now.time.split(':')[0]))
       const rows = await getSheetRows(process.env.HOURLY_SHEET_NAME || 'Sheet1')
-      const reported = new Set(
-        rows
-          .slice(1)
-          .filter(
-            r => r[0] === now.date && (r[3] || '').toString().trim() === hourBlock
-          )
-          .map(r => (r[2] || '').toString().trim().toLowerCase())
-      )
+      const reported = buildHourlyReportedStoreSet(rows, now, stores, hourBlock)
 
-      const missing = stores.filter(s => !reported.has(s.toLowerCase()))
+      const missing = stores.filter(
+        s => !reported.has((canonicalStoreName(s, stores) || s).toLowerCase())
+      )
       if (missing.length === 0) return
 
       const msg = buildStoreReminderPayload(
