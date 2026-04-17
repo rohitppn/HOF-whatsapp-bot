@@ -92,7 +92,7 @@ export function registerScheduledJobs({ state, sendAndRemember }) {
   )
 
   cron.schedule(
-    '45 14-19 * * *',
+    '0 15,17,19 * * *',
     async () => {
       if (isBotPaused(state)) return
 
@@ -100,7 +100,14 @@ export function registerScheduledJobs({ state, sendAndRemember }) {
       if (stores.length === 0) return
 
       const now = getNowParts()
-      const hourBlock = hourBlockFromHour(Number(now.time.split(':')[0]))
+      const reminderHours = {
+        15: '2-3 PM',
+        17: '4-5 PM',
+        19: '6-7 PM'
+      }
+      const hourBlock =
+        reminderHours[Number(now.time.split(':')[0])] ||
+        hourBlockFromHour(Number(now.time.split(':')[0]))
       const rows = await getSheetRows(process.env.HOURLY_SHEET_NAME || 'Sheet1')
       const reported = buildHourlyReportedStoreSet(rows, now, stores, hourBlock)
 
