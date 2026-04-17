@@ -1,9 +1,15 @@
 import { parseHourlyReport } from '../../services/parser.js'
 import {
+  getSheetRows,
   sheetBigBill,
   sheetHourly,
-  sheetOpening
+  sheetOpening,
+  updateSheetRange
 } from '../../services/sheets.js'
+import {
+  canonicalStoreName,
+  getStoresFromEnv
+} from '../storeConfig.js'
 import {
   answerManagerAssistant,
   decideSmartReply,
@@ -11,7 +17,6 @@ import {
   parseManagerCommand
 } from '../../services/openai.js'
 import { saveBigBill } from '../../services/bigBills.js'
-import { getStoresFromEnv } from '../storeConfig.js'
 import {
   parseBigBillFromText,
   parseOpeningTimeFromText,
@@ -23,6 +28,122 @@ import {
   hourBlockFromHour,
   isLateOpening
 } from '../time.js'
+
+function coerceBigBillValue(value) {
+  if (value == null || value === '') return ''
+  const digits = String(value).replace(/[^\d.]/g, '')
+  if (!digits) return ''
+  const num = Number(digits)
+  return Number.isFinite(num) ? Math.round(num) : ''
+}
+
+function normalizeBigBillExtract(parsed) {
+  if (!parsed) return null
+
+  const store = canonicalStoreName(parsed.store, getStoresFromEnv()) || String(parsed.store || '').trim()
+  const billValue = coerceBigBillValue(parsed.billValue)
+  const quantity =
+    parsed.quantity == null || parsed.quantity === ''
+      ? ''
+      : Number.isFinite(Number(parsed.quantity))
+        ? Number(parsed.quantity)
+        : ''
+
+  return {
+    store: store || '',
+    billValue,
+    quantity,
+    assistedBy: String(parsed.assistedBy || '').trim(),
+    helpedBy: String(parsed.helpedBy || '').trim()
+  }
+}
+
+function rowNeedsBigBillBackfill(row) {
+  const rawMessage = String(row?.[7] || '').trim()
+  if (!rawMessage) return false
+
+  return [2, 3, 4, 5, 6].some(index => !String(row?.[index] || '').trim())
+}
+
+async function extractBigBillFromRawMessage(rawMessage, now) {
+  const regexParsed = normalizeBigBillExtract(parseBigBillFromText(rawMessage))
+  if (regexParsed?.store && regexParsed.billValue) return regexParsed
+
+  const ai = await extractOperationalIntent({
+    text: rawMessage,
+    stores: getStoresFromEnv(),
+    now
+  })
+
+  if (!ai || ai.kind !== 'big_bill' || !ai.data?.store || ai.data?.billValue == null) {
+    return regexParsed
+  }
+
+  return normalizeBigBillExtract({
+    store: ai.data.store,
+    billValue: ai.data.billValue,
+    quantity: ai.data.quantity,
+    assistedBy: ai.data.assistedBy,
+    helpedBy: ai.data.helpedBy
+  })
+}
+
+export async function syncBigBillSheetFromRawMessages({ maxRows = 100 } = {}) {
+  const sheetName = process.env.BIG_BILL_SHEET_NAME || 'Sheet3'
+  const rows = await getSheetRows(sheetName)
+  if (rows.length <= 1) return 0
+
+  const headerOffset = 2
+  const dataRows = rows.slice(1)
+  const startIndex = Math.max(0, dataRows.length - maxRows)
+  let updatedCount = 0
+
+  for (let i = startIndex; i < dataRows.length; i += 1) {
+    const row = dataRows[i]
+    if (!rowNeedsBigBillBackfill(row)) continue
+
+    const rawMessage = String(row?.[7] || '').trim()
+    if (!rawMessage) continue
+
+    const extracted = await extractBigBillFromRawMessage(rawMessage, {
+      date: String(row?.[0] || '').trim(),
+      time: String(row?.[1] || '').trim(),
+      recordedAt: String(row?.[8] || '').trim()
+    })
+
+    if (!extracted?.store || !extracted.billValue) continue
+
+    const current = {
+      store: String(row?.[2] || '').trim(),
+      billValue: coerceBigBillValue(row?.[3]),
+      quantity: String(row?.[4] || '').trim(),
+      assistedBy: String(row?.[5] || '').trim(),
+      helpedBy: String(row?.[6] || '').trim()
+    }
+
+    const next = [
+      current.store || extracted.store || '',
+      current.billValue || extracted.billValue || '',
+      current.quantity || extracted.quantity || '',
+      current.assistedBy || extracted.assistedBy || '',
+      current.helpedBy || extracted.helpedBy || ''
+    ]
+
+    const changed =
+      String(current.store || '') !== String(next[0] || '') ||
+      String(current.billValue || '') !== String(next[1] || '') ||
+      String(current.quantity || '') !== String(next[2] || '') ||
+      String(current.assistedBy || '') !== String(next[3] || '') ||
+      String(current.helpedBy || '') !== String(next[4] || '')
+
+    if (!changed) continue
+
+    await updateSheetRange(sheetName, `C${headerOffset + i}:G${headerOffset + i}`, [next])
+    updatedCount += 1
+  }
+
+  return updatedCount
+}
 
 export async function handleHourly(text, msgTs) {
   let parsed = parseHourlyReport(text)
@@ -143,6 +264,10 @@ export async function handleBigBill(text, msgTs) {
     text,
     parts.recordedAt
   ])
+
+  if (savedToSheets) {
+    await syncBigBillSheetFromRawMessages({ maxRows: 100 })
+  }
 
   return { ok: true, ...parsed, date: parts.date, savedToSheets }
 }

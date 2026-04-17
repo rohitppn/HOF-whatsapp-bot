@@ -1,6 +1,8 @@
 import cron from 'node-cron'
 import { getSheetRows } from '../services/sheets.js'
 import { getTopBigBillForDate } from '../services/bigBills.js'
+import { syncBigBillSheetFromRawMessages } from './handlers/operations.js'
+import { buildDailyBigBillLeaderboardMessage } from './leaderboard.js'
 import { TIMEZONE } from './runtime.js'
 import { isBotPaused } from './state.js'
 import {
@@ -232,6 +234,25 @@ export function registerScheduledJobs({ state, sendAndRemember }) {
 
       if (MANAGERS_GROUP_ID && !ALLOWED_GROUPS.includes(MANAGERS_GROUP_ID)) {
         await sendAndRemember(MANAGERS_GROUP_ID, storeMsg)
+      }
+    },
+    { timezone: TIMEZONE }
+  )
+
+  cron.schedule(
+    '30 21 * * *',
+    async () => {
+      if (isBotPaused(state)) return
+
+      await syncBigBillSheetFromRawMessages({ maxRows: 500 })
+
+      const now = getNowParts()
+      const leaderboardMessage = await buildDailyBigBillLeaderboardMessage(now.date)
+      if (!leaderboardMessage) return
+
+      for (const group of ALLOWED_GROUPS) {
+        await sendAndRemember(group, leaderboardMessage)
+        await sleep(randomGapMs())
       }
     },
     { timezone: TIMEZONE }

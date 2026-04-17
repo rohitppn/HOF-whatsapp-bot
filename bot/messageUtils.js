@@ -182,26 +182,14 @@ export function buildBigBillCelebrationMessage({
   assistedBy,
   helpedBy
 }) {
-  const storeLabel = String(store || '').trim()
-  const appreciationLine = `${storeLabel} team, brilliant work on this big bill.`
-  const supportLine = helpedBy
-    ? `Supported by - ${helpedBy}`
-    : 'Keep this energy going.'
+  const storeLabel = String(store || '').trim() || 'the store'
+  const personLabel = String(assistedBy || helpedBy || '').trim() || 'team'
+  const valueLabel = `₹${formatINR(billValue)}/-`
+  const templates = [
+    `Well done, ${personLabel} amazing bill of ${valueLabel}\nGreat to see ${storeLabel} Store picking up the numbers.\nAdded to the leaderboard.`,
+    `Amazing job, ${personLabel} superb bill of ${valueLabel}\nGood to see ${storeLabel} Store picking up strongly.\nThis has been added to the leaderboard.`,
+    `Well done, ${personLabel} amazing bill of ${valueLabel}\nGood to see ${storeLabel} Store picking up.\nAdded to the leaderboard.`
+  ]
 
-  return (
-    `Let’s make some noise\n` +
-    `${storeLabel}\n` +
-    `🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥\n\n` +
-    `${appreciationLine}\n` +
-    `Proud moment for ${storeLabel}.\n\n` +
-    `🤩 Big Bill Alert 🤩\n` +
-    `🛍️ ${storeLabel} 🛍️\n\n` +
-    `*Value – ${formatINR(billValue)}/-*\n\n` +
-    `${quantity != null ? `Quantity – ${quantity}\n\n` : ''}` +
-    `${assistedBy ? `Assisted by – ${assistedBy}\n` : ''}` +
-    `${supportLine}\n\n` +
-    `👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻\n\n` +
-    `Many more big bills to come. Keep shining!\n\n` +
-    `🧿🧿🧿🧿🧿🧿🧿🧿🧿🧿🧿🧿`
-  )
+  return templates[Math.floor(Math.random() * templates.length)]
 }
