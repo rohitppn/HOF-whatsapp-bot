@@ -25,6 +25,7 @@ function looksLikePlaceholder(value) {
     normalized.includes('/absolute/path/to/') ||
     normalized.includes('your_google_sheet_id') ||
     normalized.includes('your_openai_api_key') ||
+    normalized.includes('your_anthropic_api_key') ||
     normalized === 'changeme'
   )
 }

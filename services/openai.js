@@ -1,8 +1,11 @@
 import P from 'pino'
 
-const OPENAI_URL = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1/chat/completions'
-const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini'
-const OPENAI_VISION_MODEL = process.env.OPENAI_VISION_MODEL || OPENAI_MODEL
+const ANTHROPIC_URL =
+  process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com/v1/messages'
+const ANTHROPIC_MODEL =
+  process.env.ANTHROPIC_MODEL ||
+  process.env.OPENAI_MODEL ||
+  'claude-3-5-sonnet-latest'
 const log = P({ level: process.env.LOG_LEVEL || 'info' })
 
 function jsonBlock(content) {
@@ -18,6 +21,63 @@ function jsonBlock(content) {
   return text.slice(start, end + 1)
 }
 
+function getAnthropicApiKey() {
+  return (
+    process.env.ANTHROPIC_API_KEY ||
+    process.env.OPENAI_API_KEY ||
+    ''
+  ).trim()
+}
+
+async function requestAnthropicJson({
+  system,
+  user,
+  temperature = 0,
+  maxTokens = 900,
+  failureLabel
+}) {
+  const apiKey = getAnthropicApiKey()
+  if (!apiKey) return null
+
+  const res = await fetch(ANTHROPIC_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01'
+    },
+    body: JSON.stringify({
+      model: ANTHROPIC_MODEL,
+      temperature,
+      max_tokens: maxTokens,
+      system,
+      messages: [{ role: 'user', content: user }]
+    })
+  })
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    log.warn(
+      { status: res.status, bodyPreview: body.slice(0, 300) },
+      failureLabel
+    )
+    return null
+  }
+
+  const data = await res.json()
+  const raw = (data?.content || [])
+    .map(item => (item?.type === 'text' ? item.text : ''))
+    .join('\n')
+  const parsed = jsonBlock(raw)
+  if (!parsed) return null
+
+  try {
+    return JSON.parse(parsed)
+  } catch {
+    return null
+  }
+}
+
 export async function decideSmartReply({
   latestText,
   senderName,
@@ -26,9 +86,6 @@ export async function decideSmartReply({
   recentKnowledge,
   now
 }) {
-  const apiKey = process.env.OPENAI_API_KEY
-  if (!apiKey) return null
-
   const system = [
     'You are a retail operations WhatsApp bot.',
     'You read recent group context and decide whether the bot should reply.',
@@ -64,48 +121,25 @@ export async function decideSmartReply({
     2
   )
 
-  const res = await fetch(OPENAI_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`
-    },
-    body: JSON.stringify({
-      model: OPENAI_MODEL,
-      temperature: 0.2,
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: user }
-      ]
-    })
+  const result = await requestAnthropicJson({
+    system,
+    user,
+    temperature: 0.2,
+    maxTokens: 900,
+    failureLabel: 'anthropic decideSmartReply failed'
   })
 
-  if (!res.ok) {
-    const body = await res.text().catch(() => '')
-    log.warn({ status: res.status, bodyPreview: body.slice(0, 300) }, 'openai decideSmartReply failed')
-    return null
-  }
-  const data = await res.json()
-  const raw = data?.choices?.[0]?.message?.content
-  const parsed = jsonBlock(raw)
-  if (!parsed) return null
+  if (!result) return null
 
-  try {
-    const result = JSON.parse(parsed)
-    return {
-      shouldReply: Boolean(result?.shouldReply),
-      reply: typeof result?.reply === 'string' ? result.reply.trim() : null,
-      facts: Array.isArray(result?.facts) ? result.facts : []
-    }
-  } catch {
-    return null
+  return {
+    shouldReply: Boolean(result?.shouldReply),
+    reply: typeof result?.reply === 'string' ? result.reply.trim() : null,
+    facts: Array.isArray(result?.facts) ? result.facts : []
   }
 }
 
 export async function extractOperationalIntent({ text, stores, now }) {
-  const apiKey = process.env.OPENAI_API_KEY
-  if (!apiKey || !text?.trim()) return null
+  if (!text?.trim()) return null
 
   const user = JSON.stringify(
     {
@@ -134,47 +168,18 @@ export async function extractOperationalIntent({ text, stores, now }) {
     2
   )
 
-  const res = await fetch(OPENAI_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`
-    },
-    body: JSON.stringify({
-      model: OPENAI_MODEL,
-      temperature: 0,
-      response_format: { type: 'json_object' },
-      messages: [
-        {
-          role: 'system',
-          content:
-            'Extract structured retail-ops intent from WhatsApp messages. Use kind=none if the message is not an operational report. Ask clarification only when the user clearly intends to report operational data but key fields are missing. Return JSON only.'
-        },
-        { role: 'user', content: user }
-      ]
-    })
+  return requestAnthropicJson({
+    system:
+      'Extract structured retail-ops intent from WhatsApp messages. Use kind=none if the message is not an operational report. Ask clarification only when the user clearly intends to report operational data but key fields are missing. Return JSON only.',
+    user,
+    temperature: 0,
+    maxTokens: 800,
+    failureLabel: 'anthropic extractOperationalIntent failed'
   })
-
-  if (!res.ok) {
-    const body = await res.text().catch(() => '')
-    log.warn({ status: res.status, bodyPreview: body.slice(0, 300) }, 'openai extractOperationalIntent failed')
-    return null
-  }
-  const data = await res.json()
-  const raw = data?.choices?.[0]?.message?.content
-  const parsed = jsonBlock(raw)
-  if (!parsed) return null
-
-  try {
-    return JSON.parse(parsed)
-  } catch {
-    return null
-  }
 }
 
 export async function parseManagerCommand({ text, stores, allowedSheets, storeGroups }) {
-  const apiKey = process.env.OPENAI_API_KEY
-  if (!apiKey || !text?.trim()) return null
+  if (!text?.trim()) return null
 
   const user = JSON.stringify(
     {
@@ -196,47 +201,24 @@ export async function parseManagerCommand({ text, stores, allowedSheets, storeGr
     2
   )
 
-  const res = await fetch(OPENAI_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`
-    },
-    body: JSON.stringify({
-      model: OPENAI_MODEL,
-      temperature: 0,
-      response_format: { type: 'json_object' },
-      messages: [
-        {
-          role: 'system',
-          content:
-            'Parse manager instructions. Only return an action if the message is a direct bot command to send a message to store groups or update Google Sheets. Return JSON only. The reply must be valid JSON.'
-        },
-        { role: 'user', content: user }
-      ]
-    })
+  return requestAnthropicJson({
+    system:
+      'Parse manager instructions. Only return an action if the message is a direct bot command to send a message to store groups or update Google Sheets. Return JSON only. The reply must be valid JSON.',
+    user,
+    temperature: 0,
+    maxTokens: 800,
+    failureLabel: 'anthropic parseManagerCommand failed'
   })
-
-  if (!res.ok) {
-    const body = await res.text().catch(() => '')
-    log.warn({ status: res.status, bodyPreview: body.slice(0, 300) }, 'openai parseManagerCommand failed')
-    return null
-  }
-  const data = await res.json()
-  const raw = data?.choices?.[0]?.message?.content
-  const parsed = jsonBlock(raw)
-  if (!parsed) return null
-
-  try {
-    return JSON.parse(parsed)
-  } catch {
-    return null
-  }
 }
 
-export async function answerManagerAssistant({ text, stores, recentMessages, recentKnowledge, now }) {
-  const apiKey = process.env.OPENAI_API_KEY
-  if (!apiKey || !text?.trim()) return null
+export async function answerManagerAssistant({
+  text,
+  stores,
+  recentMessages,
+  recentKnowledge,
+  now
+}) {
+  if (!text?.trim()) return null
 
   const user = JSON.stringify(
     {
@@ -253,41 +235,14 @@ export async function answerManagerAssistant({ text, stores, recentMessages, rec
     2
   )
 
-  const res = await fetch(OPENAI_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`
-    },
-    body: JSON.stringify({
-      model: OPENAI_MODEL,
-      temperature: 0.3,
-      response_format: { type: 'json_object' },
-      messages: [
-        {
-          role: 'system',
-          content:
-            'You are the HOF retail operations assistant replying inside the manager WhatsApp group. Reply like a human, usually under 10 words unless a summary is requested. Be warm, short, and clear. If you do not understand, ask one short follow-up question. Do not invent figures or status. If the manager greets you, respond warmly and briefly. Return JSON only. The reply must be valid JSON.'
-        },
-        { role: 'user', content: user }
-      ]
-    })
+  const result = await requestAnthropicJson({
+    system:
+      'You are the HOF retail operations assistant replying inside the manager WhatsApp group. Reply like a human, usually under 10 words unless a summary is requested. Be warm, short, and clear. If you do not understand, ask one short follow-up question. Do not invent figures or status. If the manager greets you, respond warmly and briefly. Return JSON only. The reply must be valid JSON.',
+    user,
+    temperature: 0.3,
+    maxTokens: 300,
+    failureLabel: 'anthropic answerManagerAssistant failed'
   })
 
-  if (!res.ok) {
-    const body = await res.text().catch(() => '')
-    log.warn({ status: res.status, bodyPreview: body.slice(0, 300) }, 'openai answerManagerAssistant failed')
-    return null
-  }
-  const data = await res.json()
-  const raw = data?.choices?.[0]?.message?.content
-  const parsed = jsonBlock(raw)
-  if (!parsed) return null
-
-  try {
-    const result = JSON.parse(parsed)
-    return typeof result?.reply === 'string' ? result.reply.trim() : null
-  } catch {
-    return null
-  }
+  return typeof result?.reply === 'string' ? result.reply.trim() : null
 }

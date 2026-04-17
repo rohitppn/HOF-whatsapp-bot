@@ -53,7 +53,7 @@ export function buildHelpMessage() {
     `- Records big bills in Sheet3 and shares appreciation\n` +
     `- Sends 8 PM manager summary with late openings and top 3 sales stores\n` +
     `- Sends store-group shop-of-the-day appreciation and big bill celebration\n` +
-    `- Uses OpenAI to understand flexible report wording when regex parsing misses\n\n` +
+    `- Uses Claude to understand flexible report wording when regex parsing misses\n\n` +
     `Owner self-chat command:\n` +
     `- STOP : pause bot automations and replies for 12 hours`
   )
@@ -182,20 +182,26 @@ export function buildBigBillCelebrationMessage({
   assistedBy,
   helpedBy
 }) {
+  const storeLabel = String(store || '').trim()
+  const appreciationLine = `${storeLabel} team, brilliant work on this big bill.`
+  const supportLine = helpedBy
+    ? `Supported by - ${helpedBy}`
+    : 'Keep this energy going.'
+
   return (
     `Let’s make some noise\n` +
-    `${store} store\n` +
+    `${storeLabel}\n` +
     `🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥\n\n` +
-    `🤩🤩🤩🤩🤩🤩🤩🤩\n` +
-    `🛍️🎊🛍️🎉🛍️🎊🛍️🎉\n\n` +
-    `🤩Big Bill 🤩\n` +
-    `🛍️ ${store} store 🛍️\n\n` +
+    `${appreciationLine}\n` +
+    `Proud moment for ${storeLabel}.\n\n` +
+    `🤩 Big Bill Alert 🤩\n` +
+    `🛍️ ${storeLabel} 🛍️\n\n` +
     `*Value – ${formatINR(billValue)}/-*\n\n` +
     `${quantity != null ? `Quantity – ${quantity}\n\n` : ''}` +
     `${assistedBy ? `Assisted by – ${assistedBy}\n` : ''}` +
-    `${helpedBy ? `With the help of ${helpedBy}\n\n` : '\n'}` +
+    `${supportLine}\n\n` +
     `👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻👏🏻\n\n` +
-    `Many more big bills to come!\n\n` +
+    `Many more big bills to come. Keep shining!\n\n` +
     `🧿🧿🧿🧿🧿🧿🧿🧿🧿🧿🧿🧿`
   )
 }

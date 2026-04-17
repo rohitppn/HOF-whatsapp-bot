@@ -23,7 +23,7 @@ if (fs.existsSync(DOTENV_PATH)) {
 }
 
 export const log = P({ level: process.env.LOG_LEVEL || 'info' })
-export const HANDLER_VERSION = 'v5-openai-smart-ops'
+export const HANDLER_VERSION = 'v6-claude-smart-ops'
 export const TIMEZONE = process.env.TIMEZONE || 'Asia/Kolkata'
 export const OPENCLAW_CALLBACK_TOKEN =
   (process.env.OPENCLAW_CALLBACK_TOKEN || '').trim()

@@ -214,7 +214,7 @@ export function registerMessageHandler({
             await sendAndRemember(
               jid,
               reply ||
-                'I saw your message, but I could not generate a reply right now. Please check the OpenAI settings and try again.'
+                'I saw your message, but I could not generate a reply right now. Please check the Claude settings and try again.'
             )
             continue
           }
