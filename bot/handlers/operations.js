@@ -75,7 +75,8 @@ async function extractBigBillFromRawMessage(rawMessage, now, senderJid = null) {
   const ai = await extractOperationalIntent({
     text: rawMessage,
     stores: getStoresFromEnv(),
-    now
+    now,
+    senderJid
   })
 
   if (
@@ -153,13 +154,14 @@ export async function syncBigBillSheetFromRawMessages({ maxRows = 100 } = {}) {
   return updatedCount
 }
 
-export async function handleHourly(text, msgTs) {
+export async function handleHourly(text, msgTs, senderJid = null) {
   let parsed = parseHourlyReport(text)
   if (parsed.error) {
     const ai = await extractOperationalIntent({
       text,
       stores: getStoresFromEnv(),
-      now: getPartsFromTimestamp(msgTs)
+      now: getPartsFromTimestamp(msgTs),
+      senderJid
     })
     if (
       ai?.kind === 'hourly' &&
@@ -197,13 +199,14 @@ export async function handleHourly(text, msgTs) {
   return { ok: true, store: parsed.store, hourBlock, savedToSheets }
 }
 
-export async function handleOpening(text, msgTs) {
+export async function handleOpening(text, msgTs, senderJid = null) {
   let store = parseStoreFromText(text)
   if (!store) {
     const ai = await extractOperationalIntent({
       text,
       stores: getStoresFromEnv(),
-      now: getPartsFromTimestamp(msgTs)
+      now: getPartsFromTimestamp(msgTs),
+      senderJid
     })
     if (ai?.kind === 'opening' && ai.data?.store) {
       store = String(ai.data.store).trim()

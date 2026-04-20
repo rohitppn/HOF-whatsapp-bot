@@ -52,7 +52,7 @@ export function buildHelpMessage() {
     `- Records opening timings when shared manually\n` +
     `- Records big bills in Sheet3\n` +
     `- Sends 9:30 PM daily big bill leaderboard\n` +
-    `- Uses Claude to understand flexible report wording when regex parsing misses\n\n` +
+    `- Uses built-in local logic to understand flexible report wording\n\n` +
     `Owner self-chat command:\n` +
     `- STOP : pause bot automations and replies for 12 hours`
   )

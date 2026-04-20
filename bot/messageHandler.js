@@ -212,7 +212,7 @@ export function registerMessageHandler({
             await sendAndRemember(
               jid,
               reply ||
-                'I saw your message, but I could not generate a reply right now. Please check the Claude settings and try again.'
+                'I saw your message, but I could not generate a reply right now. Please try again with a clearer command.'
             )
             continue
           }
@@ -254,7 +254,7 @@ export function registerMessageHandler({
           /(TARGET|TODAY'?S\s*TARGET)\s*[:\-]/i.test(text) &&
           /ACHIEVED(\s*TILL\s*NOW)?\s*[:\-]/i.test(text)
         ) {
-          const result = await handleHourly(text, msgTs)
+          const result = await handleHourly(text, msgTs, sender)
           if (result.error) {
             await sendAndRemember(
               jid,
@@ -286,7 +286,7 @@ export function registerMessageHandler({
         }
 
         if (upper.includes('OPENING')) {
-          const result = await handleOpening(text, msgTs)
+          const result = await handleOpening(text, msgTs, sender)
           if (result.error) {
             await sendAndRemember(
               jid,
@@ -329,7 +329,8 @@ export function registerMessageHandler({
           const extracted = await extractOperationalIntent({
             text,
             stores: getStoresFromEnv(),
-            now: getPartsFromTimestamp(msgTs)
+            now: getPartsFromTimestamp(msgTs),
+            senderJid: sender
           })
 
           if (
