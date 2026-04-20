@@ -8,6 +8,7 @@ import {
 } from '../../services/sheets.js'
 import {
   canonicalStoreName,
+  getStoreFromSenderJid,
   getStoresFromEnv
 } from '../storeConfig.js'
 import {
@@ -65,9 +66,11 @@ function rowNeedsBigBillBackfill(row) {
   return [2, 3, 4, 5, 6].some(index => !String(row?.[index] || '').trim())
 }
 
-async function extractBigBillFromRawMessage(rawMessage, now) {
+async function extractBigBillFromRawMessage(rawMessage, now, senderJid = null) {
   const regexParsed = normalizeBigBillExtract(parseBigBillFromText(rawMessage))
   if (regexParsed?.store && regexParsed.billValue) return regexParsed
+
+  const inferredStoreFromSender = getStoreFromSenderJid(senderJid, getStoresFromEnv())
 
   const ai = await extractOperationalIntent({
     text: rawMessage,
@@ -75,12 +78,17 @@ async function extractBigBillFromRawMessage(rawMessage, now) {
     now
   })
 
-  if (!ai || ai.kind !== 'big_bill' || !ai.data?.store || ai.data?.billValue == null) {
+  if (
+    !ai ||
+    ai.kind !== 'big_bill' ||
+    (!ai.data?.store && !inferredStoreFromSender) ||
+    ai.data?.billValue == null
+  ) {
     return regexParsed
   }
 
   return normalizeBigBillExtract({
-    store: ai.data.store,
+    store: ai.data.store || inferredStoreFromSender,
     billValue: ai.data.billValue,
     quantity: ai.data.quantity,
     assistedBy: ai.data.assistedBy,
@@ -221,26 +229,28 @@ export async function handleOpening(text, msgTs) {
   return { ok: true, late, store, savedToSheets }
 }
 
-export async function handleBigBill(text, msgTs) {
+export async function handleBigBill(text, msgTs, senderJid = null) {
   const parts = getPartsFromTimestamp(msgTs)
   let parsed = parseBigBillFromText(text)
+  const inferredStoreFromSender = getStoreFromSenderJid(senderJid, getStoresFromEnv())
+
+  if (parsed && !parsed.store && inferredStoreFromSender) {
+    parsed = { ...parsed, store: inferredStoreFromSender }
+  }
 
   if (!parsed) {
-    const ai = await extractOperationalIntent({
-      text,
-      stores: getStoresFromEnv(),
-      now: parts
-    })
-    if (!ai || ai.kind !== 'big_bill' || !ai.data?.store || !ai.data?.billValue) {
+    const extracted = await extractBigBillFromRawMessage(text, parts, senderJid)
+    if (!extracted?.store || !extracted.billValue) {
       return { error: 'Invalid big bill format' }
     }
-
-    parsed = {
-      store: String(ai.data.store).trim(),
-      billValue: Number(ai.data.billValue),
-      quantity: ai.data.quantity != null ? Number(ai.data.quantity) : null,
-      assistedBy: ai.data.assistedBy ? String(ai.data.assistedBy).trim() : null,
-      helpedBy: ai.data.helpedBy ? String(ai.data.helpedBy).trim() : null
+    parsed = extracted
+  } else {
+    parsed = normalizeBigBillExtract({
+      ...parsed,
+      store: parsed.store || inferredStoreFromSender
+    })
+    if (!parsed?.store || !parsed.billValue) {
+      return { error: 'Invalid big bill format' }
     }
   }
 

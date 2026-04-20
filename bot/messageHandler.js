@@ -2,9 +2,7 @@ import { isOpenClawEnabled } from '../services/openclaw.js'
 import { ALLOWED_GROUPS, MANAGERS_GROUP_ID, getStoresFromEnv, isAllowedGroup, isAllowedSender } from './storeConfig.js'
 import { getPauseRemainingHours, isBotPaused } from './state.js'
 import {
-  buildBigBillCelebrationMessage,
   buildHelpMessage,
-  buildWowBillShortMessage,
   isBotMentioned,
   looksLikeManagerAssistantChat,
   looksLikeManagerCommand
@@ -225,7 +223,7 @@ export function registerMessageHandler({
         let handled = false
 
         if (/big\s*bill/i.test(text) || /assisted by/i.test(text) || /with the help of/i.test(text) || /done by/i.test(text) || /wow bill/i.test(text)) {
-          const result = await handleBigBill(text, msgTs)
+          const result = await handleBigBill(text, msgTs, sender)
           if (!result.error) {
             await rememberKnowledge({
               groupJid: jid,
@@ -234,11 +232,6 @@ export function registerMessageHandler({
               factText: `Big bill recorded for ${result.store}: ${result.billValue}.`,
               sourceMessageId: msg.key.id || null
             })
-            const celebrationMsg = buildBigBillCelebrationMessage(result)
-            await sendAndRemember(jid, celebrationMsg)
-            if (MANAGERS_GROUP_ID && MANAGERS_GROUP_ID !== jid) {
-              await sendAndRemember(MANAGERS_GROUP_ID, celebrationMsg)
-            }
             await pushOpsEvent({
               eventType: 'big_bill',
               groupJid: jid,
@@ -251,12 +244,6 @@ export function registerMessageHandler({
               recentKnowledge: await loadRecentKnowledge(jid, 8),
               sessionKey
             })
-            handled = true
-            continue
-          }
-
-          if (/wow/i.test(text)) {
-            await sendAndRemember(jid, buildWowBillShortMessage())
             handled = true
             continue
           }
@@ -434,7 +421,7 @@ export function registerMessageHandler({
             extracted.data?.store &&
             extracted.data?.billValue != null
           ) {
-            const result = await handleBigBill(text, msgTs)
+            const result = await handleBigBill(text, msgTs, sender)
             if (!result.error) {
               await rememberKnowledge({
                 groupJid: jid,
@@ -443,11 +430,6 @@ export function registerMessageHandler({
                 factText: `Big bill recorded for ${result.store}: ${result.billValue}.`,
                 sourceMessageId: msg.key.id || null
               })
-              const celebrationMsg = buildBigBillCelebrationMessage(result)
-              await sendAndRemember(jid, celebrationMsg)
-              if (MANAGERS_GROUP_ID && MANAGERS_GROUP_ID !== jid) {
-                await sendAndRemember(MANAGERS_GROUP_ID, celebrationMsg)
-              }
               await pushOpsEvent({
                 eventType: 'big_bill_ai_extracted',
                 groupJid: jid,

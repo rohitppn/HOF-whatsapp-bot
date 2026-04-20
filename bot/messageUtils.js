@@ -49,10 +49,9 @@ export function buildHelpMessage() {
     `- @bot update sheet ... : update Sheet1 / Sheet2 / Sheet3\n\n` +
     `Features:\n` +
     `- Records hourly sales reports\n` +
-    `- Records opening timings and flags late openings\n` +
-    `- Records big bills in Sheet3 and shares appreciation\n` +
-    `- Sends 8 PM manager summary with late openings and top 3 sales stores\n` +
-    `- Sends store-group shop-of-the-day appreciation and big bill celebration\n` +
+    `- Records opening timings when shared manually\n` +
+    `- Records big bills in Sheet3\n` +
+    `- Sends 9:30 PM daily big bill leaderboard\n` +
     `- Uses Claude to understand flexible report wording when regex parsing misses\n\n` +
     `Owner self-chat command:\n` +
     `- STOP : pause bot automations and replies for 12 hours`
@@ -132,7 +131,7 @@ export function parseBigBillFromText(text) {
     lines.find(line => {
       if (!/[a-z]/i.test(line)) return false
       if (
-        /(wow\s*bill|value|bill|quantity|done\s*by|assisted\s*by|with the help of)/i.test(
+        /(wow\s*bill|value|bill|quantity|done\s*by|assisted\s*by|billed\s*by|with the help of)/i.test(
           line
         )
       ) {
@@ -146,7 +145,7 @@ export function parseBigBillFromText(text) {
   )
   const quantity = normalizedText.match(/quantity\s*[-–:]\s*\*?\s*(\d+)/i)
   const assistedBy = normalizedText.match(
-    /(?:assisted by|done by)\s*[-–:]?\s*([^\n\r*]+)/i
+    /(?:assisted by|done by|billed by)\s*[-–:]?\s*([^\n\r*]+)/i
   )
   const helpedBy = normalizedText.match(/with the help of\s*([^\n\r*]+)/i)
 
@@ -159,6 +158,8 @@ export function parseBigBillFromText(text) {
 
   return {
     store: String(Array.isArray(store) ? store[1] : store)
+      .replace(/^[^\p{L}\p{N}]+/gu, '')
+      .replace(/[^\p{L}\p{N}\s.&'-]+$/gu, '')
       .replace(/\s+store$/i, '')
       .trim(),
     billValue: cleanValue,

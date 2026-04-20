@@ -77,7 +77,7 @@ function buildLeaderboardMessage(dateText, leaders) {
   )
 
   return (
-    `🏆 Today’s Leaderboard – Store Performance\n\n` +
+    `🏆 Today’s Leaderboard – Daily Big Bill Performance\n\n` +
     `📅 ${formatLeaderboardDate(dateText)}\n\n` +
     `${lines.join('\n\n')}\n\n\n` +
     `🏆${topThree[0].performer} declared as top performer for today!`

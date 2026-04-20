@@ -85,6 +85,20 @@ export function getStoreContactJid(storeName) {
   return number ? `${number}@s.whatsapp.net` : null
 }
 
+export function getStoreFromSenderJid(senderJid, stores = getStoresFromEnv()) {
+  const senderDigits = normalizePhoneNumber(senderJid)
+  if (!senderDigits) return null
+
+  for (const store of stores) {
+    const storeNumber = getStoreContactNumber(store)
+    if (storeNumber && storeNumber === senderDigits) {
+      return store
+    }
+  }
+
+  return null
+}
+
 export function buildStoreReminderPayload(stores, messageSuffix) {
   const mentions = []
   const tokens = stores.map(store => {
