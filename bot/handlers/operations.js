@@ -17,6 +17,7 @@ import {
   extractOperationalIntent,
   parseManagerCommand
 } from '../../services/openai.js'
+import { extractBigBillWithCheapModel } from '../../services/bigBillAi.js'
 import { saveBigBill } from '../../services/bigBills.js'
 import {
   parseBigBillFromText,
@@ -71,29 +72,23 @@ async function extractBigBillFromRawMessage(rawMessage, now, senderJid = null) {
   if (regexParsed?.store && regexParsed.billValue) return regexParsed
 
   const inferredStoreFromSender = getStoreFromSenderJid(senderJid, getStoresFromEnv())
-
-  const ai = await extractOperationalIntent({
+  const ai = await extractBigBillWithCheapModel({
     text: rawMessage,
     stores: getStoresFromEnv(),
-    now,
-    senderJid
+    senderStore: inferredStoreFromSender,
+    now
   })
 
-  if (
-    !ai ||
-    ai.kind !== 'big_bill' ||
-    (!ai.data?.store && !inferredStoreFromSender) ||
-    ai.data?.billValue == null
-  ) {
+  if (!ai || (!ai.store && !inferredStoreFromSender) || ai.billValue == null) {
     return regexParsed
   }
 
   return normalizeBigBillExtract({
-    store: ai.data.store || inferredStoreFromSender,
-    billValue: ai.data.billValue,
-    quantity: ai.data.quantity,
-    assistedBy: ai.data.assistedBy,
-    helpedBy: ai.data.helpedBy
+    store: ai.store || inferredStoreFromSender,
+    billValue: ai.billValue,
+    quantity: ai.quantity,
+    assistedBy: ai.assistedBy,
+    helpedBy: ai.helpedBy
   })
 }
 
@@ -157,29 +152,7 @@ export async function syncBigBillSheetFromRawMessages({ maxRows = 100 } = {}) {
 export async function handleHourly(text, msgTs, senderJid = null) {
   let parsed = parseHourlyReport(text)
   if (parsed.error) {
-    const ai = await extractOperationalIntent({
-      text,
-      stores: getStoresFromEnv(),
-      now: getPartsFromTimestamp(msgTs),
-      senderJid
-    })
-    if (
-      ai?.kind === 'hourly' &&
-      ai.data?.store &&
-      ai.data?.target != null &&
-      ai.data?.achieved != null &&
-      ai.data?.walkIns != null
-    ) {
-      parsed = {
-        store: String(ai.data.store).trim(),
-        target: Number(ai.data.target),
-        achieved: Number(ai.data.achieved),
-        walkIns: Number(ai.data.walkIns),
-        hour: ai.data.hour ? String(ai.data.hour).trim() : null
-      }
-    } else {
-      return { error: 'Invalid hourly report format' }
-    }
+    return { error: 'Invalid hourly report format' }
   }
 
   const parts = getPartsFromTimestamp(msgTs)
@@ -202,15 +175,7 @@ export async function handleHourly(text, msgTs, senderJid = null) {
 export async function handleOpening(text, msgTs, senderJid = null) {
   let store = parseStoreFromText(text)
   if (!store) {
-    const ai = await extractOperationalIntent({
-      text,
-      stores: getStoresFromEnv(),
-      now: getPartsFromTimestamp(msgTs),
-      senderJid
-    })
-    if (ai?.kind === 'opening' && ai.data?.store) {
-      store = String(ai.data.store).trim()
-    }
+    store = getStoreFromSenderJid(senderJid, getStoresFromEnv())
   }
 
   if (!store) return { error: 'Missing store name in opening report' }
