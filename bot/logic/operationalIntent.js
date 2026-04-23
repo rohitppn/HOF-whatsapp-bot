@@ -158,11 +158,11 @@ export function extractOperationalIntentLocal({ text, stores = [], senderJid = n
   const body = String(text || '').trim()
   if (!body) return null
 
-  const bigBill = detectBigBill(body, stores, senderJid)
-  if (bigBill) return bigBill
-
   const hourly = detectHourly(body, stores, senderJid)
   if (hourly) return hourly
+
+  const bigBill = detectBigBill(body, stores, senderJid)
+  if (bigBill) return bigBill
 
   const opening = detectOpening(body, stores, senderJid)
   if (opening) return opening

@@ -21,6 +21,7 @@ import { extractBigBillWithCheapModel } from '../../services/bigBillAi.js'
 import { saveBigBill } from '../../services/bigBills.js'
 import {
   parseBigBillFromText,
+  looksLikeBigBillReport,
   parseOpeningTimeFromText,
   parseStoreFromText
 } from '../messageUtils.js'
@@ -68,6 +69,8 @@ function rowNeedsBigBillBackfill(row) {
 }
 
 async function extractBigBillFromRawMessage(rawMessage, now, senderJid = null) {
+  if (!looksLikeBigBillReport(rawMessage)) return null
+
   const regexParsed = normalizeBigBillExtract(parseBigBillFromText(rawMessage))
   if (regexParsed?.store && regexParsed.billValue) return regexParsed
 

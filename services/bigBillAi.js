@@ -10,7 +10,7 @@ const BIG_BILL_AI_URL =
 const BIG_BILL_AI_MODEL =
   process.env.BIG_BILL_AI_MODEL ||
   process.env.ANTHROPIC_MODEL ||
-  'claude-3-5-haiku-latest'
+  'claude-3-haiku-20240307'
 
 function getApiKey() {
   return (

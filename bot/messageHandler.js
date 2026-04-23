@@ -4,6 +4,8 @@ import { getPauseRemainingHours, isBotPaused } from './state.js'
 import {
   buildHelpMessage,
   isBotMentioned,
+  looksLikeBigBillReport,
+  looksLikeHourlyReport,
   looksLikeManagerAssistantChat,
   looksLikeManagerCommand
 } from './messageUtils.js'
@@ -222,45 +224,9 @@ export function registerMessageHandler({
 
         let handled = false
 
-        if (/big\s*bill/i.test(text) || /assisted by/i.test(text) || /with the help of/i.test(text) || /done by/i.test(text) || /wow bill/i.test(text)) {
-          const result = await handleBigBill(text, msgTs, sender)
-          if (!result.error) {
-            await rememberKnowledge({
-              groupJid: jid,
-              storeName: result.store,
-              kind: 'performance',
-              factText: `Big bill recorded for ${result.store}: ${result.billValue}.`,
-              sourceMessageId: msg.key.id || null
-            })
-            await pushOpsEvent({
-              eventType: 'big_bill',
-              groupJid: jid,
-              senderJid: sender,
-              senderName,
-              timestamp: parts.recordedAt,
-              text,
-              structuredResult: `big_bill:${result.store}:${result.billValue}`,
-              stores: getStoresFromEnv(),
-              recentKnowledge: await loadRecentKnowledge(jid, 8),
-              sessionKey
-            })
-            handled = true
-            continue
-          }
-        }
-
-        if (
-          /STORE\s*[:\-]/i.test(text) &&
-          /(TARGET|TODAY'?S\s*TARGET)\s*[:\-]/i.test(text) &&
-          /ACHIEVED(\s*TILL\s*NOW)?\s*[:\-]/i.test(text)
-        ) {
+        if (looksLikeHourlyReport(text)) {
           const result = await handleHourly(text, msgTs, sender)
-          if (result.error) {
-            await sendAndRemember(
-              jid,
-              'Could not process this update. Please resend in the required format.'
-            )
-          } else {
+          if (!result.error) {
             await rememberKnowledge({
               groupJid: jid,
               storeName: result.store,
@@ -285,42 +251,56 @@ export function registerMessageHandler({
           continue
         }
 
-        if (upper.includes('OPENING')) {
-          const result = await handleOpening(text, msgTs, sender)
-          if (result.error) {
-            await sendAndRemember(
-              jid,
-              'Could not process this update. Please resend in the required format.'
-            )
-          } else {
+        if (looksLikeBigBillReport(text)) {
+          const result = await handleBigBill(text, msgTs, sender)
+          if (!result.error) {
             await rememberKnowledge({
               groupJid: jid,
               storeName: result.store,
-              kind: 'status',
-              factText: `${result.store} opening was recorded ${result.late ? 'late' : 'on time'}.`,
+              kind: 'performance',
+              factText: `Big bill recorded for ${result.store}: ${result.billValue}.`,
               sourceMessageId: msg.key.id || null
             })
-            await sendAndRemember(
-              jid,
-              result.savedToSheets
-                ? result.late
-                  ? `${result.store}, opening was saved after 10:30 AM. Please ensure timely opening from tomorrow.`
-                  : `Good morning, ${result.store}. Opening is saved on time. Wishing you a productive day ahead.`
-                : `${result.store}, opening update was received, but Google Sheets is not configured yet.`
-            )
+            await pushOpsEvent({
+              eventType: 'big_bill',
+              groupJid: jid,
+              senderJid: sender,
+              senderName,
+              timestamp: parts.recordedAt,
+              text,
+              structuredResult: `big_bill:${result.store}:${result.billValue}`,
+              stores: getStoresFromEnv(),
+              recentKnowledge: await loadRecentKnowledge(jid, 8),
+              sessionKey
+            })
           }
-          await pushOpsEvent({
-            eventType: 'opening_report',
-            groupJid: jid,
-            senderJid: sender,
-            senderName,
-            timestamp: parts.recordedAt,
-            text,
-            structuredResult: `opening:${result.store}:${result.late ? 'late' : 'on_time'}`,
-            stores: getStoresFromEnv(),
-            recentKnowledge: await loadRecentKnowledge(jid, 8),
-            sessionKey
-          })
+          handled = true
+          continue
+        }
+
+        if (upper.includes('OPENING')) {
+          const result = await handleOpening(text, msgTs, sender)
+          if (!result.error) {
+            await rememberKnowledge({
+              groupJid: jid,
+              storeName: result.store,
+                kind: 'status',
+                factText: `${result.store} opening was recorded ${result.late ? 'late' : 'on time'}.`,
+                sourceMessageId: msg.key.id || null
+              })
+            await pushOpsEvent({
+              eventType: 'opening_report',
+              groupJid: jid,
+              senderJid: sender,
+              senderName,
+              timestamp: parts.recordedAt,
+              text,
+              structuredResult: `opening:${result.store}:${result.late ? 'late' : 'on_time'}`,
+              stores: getStoresFromEnv(),
+              recentKnowledge: await loadRecentKnowledge(jid, 8),
+              sessionKey
+            })
+          }
           handled = true
           continue
         }
@@ -379,7 +359,7 @@ export function registerMessageHandler({
               ? String(extracted.data.openingTime).trim()
               : parts.time
             const late = openingTime > '10:30'
-            const extractedSaveOk = await sheetOpening([
+            await sheetOpening([
               parts.date,
               parts.time,
               store,
@@ -396,14 +376,6 @@ export function registerMessageHandler({
               factText: `${store} opening was recorded ${late ? 'late' : 'on time'}.`,
               sourceMessageId: msg.key.id || null
             })
-            await sendAndRemember(
-              jid,
-              extractedSaveOk
-                ? late
-                  ? `${store}, opening was saved after 10:30 AM. Please ensure timely opening from tomorrow.`
-                  : `Good morning, ${store}. Opening is saved on time. Wishing you a productive day ahead.`
-                : `${store}, opening update was received, but Google Sheets is not configured yet.`
-            )
             await pushOpsEvent({
               eventType: 'opening_report_ai_extracted',
               groupJid: jid,
@@ -449,7 +421,6 @@ export function registerMessageHandler({
             extracted?.shouldAskClarification &&
             extracted.clarification
           ) {
-            await sendAndRemember(jid, extracted.clarification)
             await pushOpsEvent({
               eventType: 'clarification_requested',
               groupJid: jid,

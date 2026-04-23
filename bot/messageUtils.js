@@ -97,6 +97,30 @@ export function looksLikeManagerAssistantChat(text) {
   return /@assis?t(?:a|e)nt|\bassis?t(?:a|e)nt\b|@bot\b|\bbot\b/i.test(text)
 }
 
+export function looksLikeHourlyReport(text) {
+  const body = String(text || '')
+  return (
+    /\b(hourly\s+sale\s+update|sale\s+update)\b/i.test(body) ||
+    (/\bstore\s*[:.\-]/i.test(body) &&
+      /\btarget\s*[:.\-]/i.test(body) &&
+      /\bach(?:ieved)?(?:\s+till\s+now)?\s*[:.\-]/i.test(body)) ||
+    (/\btarget\s*[:.\-]/i.test(body) &&
+      /\bach(?:ieved)?(?:\s+till\s+now)?\s*[:.\-]/i.test(body) &&
+      /\bwalk(?:[\s\u2010-\u2015-]*ins?|in|in'?s)\s*[:.\-]/i.test(body))
+  )
+}
+
+export function looksLikeBigBillReport(text) {
+  const body = String(text || '')
+  if (looksLikeHourlyReport(body)) return false
+
+  return (
+    /\b(wow\s*big\s*bill|wow\s*bill|big\s*bill)\b/i.test(body) ||
+    /\b(done\s*by|assisted\s*by|billed\s*by)\s*[-–:]/i.test(body) ||
+    /\bwith\s+the\s+help\s+of\b/i.test(body)
+  )
+}
+
 export function getMentionedJids(content) {
   return (
     content?.extendedTextMessage?.contextInfo?.mentionedJid ||
@@ -120,6 +144,8 @@ export function isBotMentioned({ sock, content }) {
 
 export function parseBigBillFromText(text) {
   const normalizedText = normalizeKeycapDigits(text)
+  if (!looksLikeBigBillReport(normalizedText)) return null
+
   const lines = String(normalizedText || '')
     .split(/\r?\n/)
     .map(line => line.trim())
