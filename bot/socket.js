@@ -8,6 +8,7 @@ import makeWASocket, {
 import { initDb } from '../config/db.js'
 import { addKnowledge, getRecentKnowledge, getRecentMessages, saveGroupMessage } from '../services/memory.js'
 import { sendManagerEventToOpenClaw, sendOpsEventToOpenClaw } from '../services/openclaw.js'
+import { useDatabaseAuthState } from '../services/waAuthDb.js'
 import { getStoresFromEnv } from './storeConfig.js'
 import { getAppBaseUrl, log, OPENCLAW_MANAGER_ONLY } from './runtime.js'
 import { registerMessageHandler } from './messageHandler.js'
@@ -26,7 +27,29 @@ export async function startSock({ app, state }) {
     log.warn({ err }, 'smart memory db unavailable, continuing without db memory')
   }
 
-  const { state: authState, saveCreds } = await useMultiFileAuthState('auth')
+  const authDir = process.env.AUTH_DIR || 'auth'
+  const useDbAuth = memoryReady && process.env.WA_AUTH_BACKEND !== 'file'
+
+  let authState
+  let saveCreds
+
+  if (useDbAuth) {
+    try {
+      const dbAuth = await useDatabaseAuthState({ seedFromFolder: authDir, log })
+      authState = dbAuth.state
+      saveCreds = dbAuth.saveCreds
+      log.info({ backend: 'postgres' }, 'whatsapp auth backend')
+    } catch (err) {
+      log.warn({ err: err?.message }, 'wa db auth failed; falling back to file auth')
+    }
+  }
+
+  if (!authState) {
+    log.info({ backend: 'file', authDir }, 'whatsapp auth backend')
+    const fileAuth = await useMultiFileAuthState(authDir)
+    authState = fileAuth.state
+    saveCreds = fileAuth.saveCreds
+  }
   const { version } = await fetchLatestBaileysVersion()
 
   const sock = makeWASocket({

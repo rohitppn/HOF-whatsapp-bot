@@ -10,7 +10,9 @@ const BIG_BILL_AI_URL =
 const BIG_BILL_AI_MODEL =
   process.env.BIG_BILL_AI_MODEL ||
   process.env.ANTHROPIC_MODEL ||
-  'claude-3-haiku-20240307'
+  'claude-haiku-4-5-20251001'
+
+let runtimeDisabledReason = ''
 
 function getApiKey() {
   return (
@@ -21,7 +23,7 @@ function getApiKey() {
 }
 
 function isEnabled() {
-  return process.env.BIG_BILL_AI_ENABLED !== '0'
+  return process.env.BIG_BILL_AI_ENABLED !== '0' && !runtimeDisabledReason
 }
 
 function jsonBlock(content) {
@@ -85,6 +87,14 @@ export async function extractBigBillWithCheapModel({
 
   if (!res.ok) {
     const body = await res.text().catch(() => '')
+    if (res.status === 404) {
+      runtimeDisabledReason = 'model_or_endpoint_not_found'
+      log.warn(
+        { status: res.status, model: BIG_BILL_AI_MODEL, bodyPreview: body.slice(0, 300) },
+        'big bill cheap model disabled after 404 response'
+      )
+      return null
+    }
     log.warn(
       { status: res.status, bodyPreview: body.slice(0, 300) },
       'big bill cheap model extraction failed'

@@ -33,8 +33,8 @@ export function decideSmartReplyLocal({
       facts.push(buildFact(store, 'issue', `${store} reported an operational issue.`))
     }
     return {
-      shouldReply: true,
-      reply: 'Please share the exact issue and current status.',
+      shouldReply: false,
+      reply: null,
       facts
     }
   }
@@ -52,8 +52,8 @@ export function decideSmartReplyLocal({
 
   if (/\bwhat|when|how|why|can\b/i.test(text) && /\?/i.test(text)) {
     return {
-      shouldReply: true,
-      reply: 'Please share the exact store or report type.',
+      shouldReply: false,
+      reply: null,
       facts
     }
   }

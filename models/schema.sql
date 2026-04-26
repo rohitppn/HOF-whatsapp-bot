@@ -81,3 +81,9 @@ CREATE TABLE IF NOT EXISTS group_knowledge (
 
 CREATE INDEX IF NOT EXISTS idx_group_knowledge_group_observed
   ON group_knowledge (group_jid, observed_at DESC);
+
+CREATE TABLE IF NOT EXISTS wa_auth (
+  key TEXT PRIMARY KEY,
+  data TEXT NOT NULL,
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);

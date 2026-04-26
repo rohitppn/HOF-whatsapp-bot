@@ -1,6 +1,6 @@
 import { appendSheetRow, updateSheetRange } from '../services/sheets.js'
 import { isOpenClawEnabled } from '../services/openclaw.js'
-import { isAuthorizedCallback, log } from './runtime.js'
+import { isAuthorizedCallback, log, OPENCLAW_MANAGER_ONLY } from './runtime.js'
 import {
   ALLOWED_GROUPS,
   MANAGERS_GROUP_ID,
@@ -33,6 +33,10 @@ export function registerOpenClawCallback(app, { sendAndRemember }) {
     }
 
     if (type === 'send_group_message') {
+      if (OPENCLAW_MANAGER_ONLY) {
+        log.warn({ action: type }, 'openclaw store-group message blocked (manager-only mode)')
+        return { ok: false, error: 'store-group messages disabled in manager-only mode' }
+      }
       const groups =
         Array.isArray(action.targetGroups) && action.targetGroups.length
           ? action.targetGroups
@@ -51,6 +55,10 @@ export function registerOpenClawCallback(app, { sendAndRemember }) {
     }
 
     if (type === 'ask_clarification') {
+      if (OPENCLAW_MANAGER_ONLY) {
+        log.warn({ action: type }, 'openclaw clarification blocked (manager-only mode)')
+        return { ok: false, error: 'clarifications disabled in manager-only mode' }
+      }
       const targetGroup =
         typeof action.groupJid === 'string' && isAllowedGroup(action.groupJid)
           ? action.groupJid
